@@ -1,0 +1,7 @@
+[user]
+	name = Ethan Arrowood
+	email = ethan@arrowood.dev
+[init]
+	defaultBranch = main
+[push]
+	autoSetupRemote = true
