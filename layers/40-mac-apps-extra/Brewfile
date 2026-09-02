@@ -8,8 +8,12 @@ cask zoom
 cask spotify
 cask discord
 cask podman-desktop
-cask postman
 cask daisydisk
+
+# Terminal.app is perfectly good. Ghostty buys you GPU-accelerated rendering,
+# native splits and tabs without tmux, and a plain-text config this repo could
+# manage as a dotfile. Uncomment if that sounds worth a new app to learn.
+# cask ghostty
 
 # Not available through Homebrew — install from the App Store or vendor:
 #   LastPass, NordLayer, Asana, Affinity, FileZilla

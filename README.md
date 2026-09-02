@@ -54,6 +54,8 @@ dotfiles list      # profiles and layers
 dotfiles status    # what this machine has installed, and where links point
 dotfiles link      # re-link $HOME files only, no packages
 dotfiles doctor    # check for problems (missing tools, broken links, key expiry)
+dotfiles github    # register ssh + gpg keys with GitHub
+dotfiles key       # move the signing key between machines (export/import/status)
 ```
 
 ## How it works
@@ -126,23 +128,101 @@ Nothing here needs a fork:
 | `~/.zprofile.local` | Login shells |
 | `~/.gitconfig.local` | Git settings for this machine only |
 
-## Commit signing
+## SSH
 
-The core layer configures GPG signing only when key `79007EFD4678CB94` is
-already in the machine's keyring. If it isn't, git stays unsigned and the
-installer prints the import steps — a container without the key gets working
-git rather than a git that fails on every commit.
+The core layer sets SSH up on every machine, macOS or container:
 
-The key ID is committed; the private key never is. To move it to a new machine:
+- `~/.ssh/config.d/` fragments, symlinked from the repo. `~/.ssh/config` gets a
+  single `Include ~/.ssh/config.d/*` line prepended (original backed up), so
+  your own host entries stay where they are.
+- `Host github.com` with `User git`, `AddKeysToAgent`, `UseKeychain` and the
+  identity file. `IgnoreUnknown UseKeychain` keeps the same file working on
+  Linux, where that option does not exist and would otherwise make ssh refuse
+  to parse the config at all.
+- Generates an ed25519 key if there isn't one (it prompts for a passphrase;
+  unattended runs print the command instead of making a passphraseless key).
+- Loads it into the agent, with `--apple-use-keychain` on macOS so it survives
+  reboots.
+
+`Host *` defaults live in `99-defaults.conf`, numbered last on purpose: ssh
+takes the **first** value it sees for a keyword, so a `Host *` block placed
+early silently overrides every specific host after it.
+
+Git rewrites `https://github.com/` to `git@github.com:`, so every clone uses
+SSH regardless of the URL you paste.
+
+## Registering keys with GitHub
 
 ```bash
-# on the machine that has it
-gpg --export-secret-keys --armor 79007EFD4678CB94 > key.asc
-# on the new machine
-gpg --import key.asc && rm key.asc
-gpg --edit-key 79007EFD4678CB94 trust   # 5 (ultimate), then quit
-dotfiles install --profile mac-dev      # picks it up and enables signing
+dotfiles github
 ```
 
-`dotfiles doctor` warns when the key is within 60 days of expiry (this one
+GitHub treats these as three separate uploads, which is the part worth not
+having to remember:
+
+| What | Purpose | Token scope |
+| --- | --- | --- |
+| ssh **authentication** key | `git push` works | `admin:public_key` |
+| ssh **signing** key | Verified badge (ssh signing) | `admin:ssh_signing_key` |
+| gpg key | Verified badge (gpg signing) | `write:gpg_key` |
+
+The same ssh key has to be uploaded **twice**, once as each type — that is the
+step everyone forgets. `dotfiles github` checks what is already registered,
+requests any missing token scope for you, uploads only what is needed, and then
+verifies by authenticating over ssh and making a real signed commit in a temp
+repo. Every upload asks first; nothing touches your account unattended.
+
+## Commit signing
+
+Two modes, chosen by `DOTFILES_SIGNING` (default `auto`):
+
+| Mode | Behaviour |
+| --- | --- |
+| `auto` | gpg if key `79007EFD4678CB94` is in the keyring, else the ssh key, else unsigned |
+| `gpg` | force gpg |
+| `ssh` | force ssh signing — no gpg, no gpg-agent, no pinentry |
+| `off` | no signing |
+
+`auto` is what makes a new machine painless: it signs with your ssh key
+immediately, and upgrades itself to gpg the moment you import that key.
+Neither mode is written into `~/.gitconfig` — both go to a generated include,
+so a machine without any key gets working git rather than a git that fails on
+every commit.
+
+SSH signing also writes `~/.ssh/allowed_signers`, without which git can create
+signatures but not verify its own.
+
+## Moving the signing key to a new machine
+
+**Do not put the private key in a repo or a gist.** A "secret" gist is
+*unlisted*, not private — anyone with the URL reads it, no login needed, and
+they get crawled. A private repo is readable by every token with `repo` scope
+(CI, OAuth apps, agents) and git history keeps the file after you delete it.
+
+Three options, in order of preference:
+
+1. **Don't move it.** Use `DOTFILES_SIGNING=ssh` and let the new machine sign
+   with its own ssh key. Per-machine keys beat one portable key: nothing
+   sensitive crosses the network, and revoking one machine is one click.
+2. **Password manager.** The key's own UID says `(Dashlane)` — store the
+   armored export as a secure note. Purpose-built for exactly this.
+3. **Encrypted file, stored anywhere.** If you want the convenience of pulling
+   it down from a private repo or cloud storage:
+
+   ```bash
+   # old machine — asks for the key passphrase, then a new file passphrase
+   dotfiles key export -o ~/gpg-signing-key.age
+
+   # new machine
+   dotfiles key import ~/gpg-signing-key.age
+   dotfiles install                 # picks it up, switches signing to gpg
+   ```
+
+   The output is age-encrypted (or `gpg --symmetric` if age isn't installed) on
+   top of the passphrase already on the key, so the file is an opaque blob.
+   *That* is safe in a private repo. Keep the file passphrase in your password
+   manager, not next to the file.
+
+`dotfiles key status` shows what signing material a machine currently has, and
+`dotfiles doctor` warns when the gpg key is within 60 days of expiry (this one
 expires 2028-07-19).

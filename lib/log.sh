@@ -31,6 +31,14 @@ run() {
 confirm() {
   [[ "${DOTFILES_ASSUME_YES:-0}" == "1" ]] && return 0
   [[ "${DOTFILES_DRY_RUN:-0}" == "1" ]] && return 0
+  # No terminal to ask on (piped, CI, a subshell): decline rather than emit a
+  # shell error about /dev/tty.
+  # -r /dev/tty is not enough: the node can be readable while the process has
+  # no controlling terminal, and the open then fails at read time.
+  if ! { : </dev/tty; } 2>/dev/null; then
+    printf '%s   ?%s %s -- no terminal to ask on, assuming no\n' "$_C_DIM" "$_C_RESET" "$1"
+    return 1
+  fi
   local reply
   printf '%s   ?%s %s [y/N] ' "$_C_YELLOW" "$_C_RESET" "$1"
   read -r reply </dev/tty || return 1

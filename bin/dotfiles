@@ -8,6 +8,11 @@
 #
 set -euo pipefail
 
+# A layer function that ends on a false test (`has gh && log_warn ...`) returns
+# non-zero and, under set -e, aborts the run with no output at all. This makes
+# that failure mode impossible to miss.
+trap 'rc=$?; [[ $rc -ne 0 ]] && printf "\n\033[31m error\033[0m aborted at %s:%s (exit %s)\n" "${BASH_SOURCE[0]##*/}" "$LINENO" "$rc" >&2; exit $rc' ERR
+
 DOTFILES_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export DOTFILES_ROOT
 
@@ -17,6 +22,8 @@ source "$DOTFILES_ROOT/lib/os.sh"
 source "$DOTFILES_ROOT/lib/link.sh"
 source "$DOTFILES_ROOT/lib/pkg.sh"
 source "$DOTFILES_ROOT/lib/layers.sh"
+source "$DOTFILES_ROOT/lib/key.sh"
+source "$DOTFILES_ROOT/lib/github.sh"
 
 usage() {
   cat <<'HELPTEXT'
@@ -28,6 +35,8 @@ USAGE
   dotfiles status              show what is installed on this machine
   dotfiles link                re-link $HOME files only (no packages)
   dotfiles doctor              check the current machine for problems
+  dotfiles key <sub>           move the signing key between machines safely
+  dotfiles github              register your ssh + gpg keys with GitHub
 
 INSTALL OPTIONS
   -p, --profile NAME   profile to install (default: core, or mac-dev on macOS)
@@ -49,6 +58,13 @@ EXAMPLES
 
   # Work machine
   dotfiles install --profile mac-full --with work-harper
+
+  # Sign with the ssh key instead of gpg (no gpg key needed on this machine)
+  DOTFILES_SIGNING=ssh dotfiles install --profile mac-dev
+
+ENVIRONMENT
+  DOTFILES_SIGNING       auto (default) | gpg | ssh | off
+  DOTFILES_COMPUTER_NAME set the macOS computer name unattended
 HELPTEXT
 }
 
@@ -121,8 +137,51 @@ cmd_doctor() {
     problems=$((problems+1))
   fi
 
+  # ssh
+  local ssh_key="${CORE_SSH_KEY:-$HOME/.ssh/id_ed25519}"
+  if [[ -f "$ssh_key" ]]; then
+    log_ok "ssh key $(pretty_path "$ssh_key")"
+    local fp; fp="$(ssh-keygen -lf "$ssh_key" 2>/dev/null | awk '{print $2}')"
+    if [[ -n "$fp" ]] && ssh-add -l 2>/dev/null | grep -qF "$fp"; then
+      log_ok "ssh key loaded in the agent"
+    else
+      log_warn "ssh key is not in the agent — run: ssh-add $ssh_key"
+      problems=$((problems+1))
+    fi
+  else
+    log_warn "no ssh key at $(pretty_path "$ssh_key")"
+    problems=$((problems+1))
+  fi
+
+  if [[ -f "$HOME/.ssh/config" ]] && grep -qF 'config.d/' "$HOME/.ssh/config"; then
+    log_ok "~/.ssh/config includes config.d/"
+  else
+    log_warn "~/.ssh/config does not include config.d/ — run: dotfiles install"
+    problems=$((problems+1))
+  fi
+
+  if has ssh && [[ -f "$ssh_key" ]]; then
+    local probe; probe="$(ssh -o BatchMode=yes -o ConnectTimeout=8 -T git@github.com 2>&1 || true)"
+    case "$probe" in
+      *"successfully authenticated"*) log_ok "github ssh authentication works" ;;
+      *"Permission denied"*) log_warn "github rejected the ssh key — register it: gh ssh-key add $ssh_key.pub"; problems=$((problems+1)) ;;
+      *) log_skip "github ssh probe inconclusive (offline?)" ;;
+    esac
+  fi
+
   local key; key="$(git config --global user.signingkey || true)"
-  if [[ -n "$key" ]]; then
+  local fmt; fmt="$(git config --global gpg.format || echo openpgp)"
+  if [[ -n "$key" && "$fmt" == "ssh" ]]; then
+    if [[ -f "${key/#\~/$HOME}" ]]; then
+      log_ok "signing with ssh key $(pretty_path "$key")"
+      [[ -f "$HOME/.ssh/allowed_signers" ]] \
+        && log_ok "allowed_signers present (local verification works)" \
+        || { log_warn "no ~/.ssh/allowed_signers — git can sign but not verify"; problems=$((problems+1)); }
+    else
+      log_err "git signs with $key but that file does not exist"
+      problems=$((problems+1))
+    fi
+  elif [[ -n "$key" ]]; then
     if has gpg && gpg --list-secret-keys "$key" >/dev/null 2>&1; then
       log_ok "gpg signing key $key present"
       local expiry
@@ -270,6 +329,8 @@ main() {
     status)       cmd_status ;;
     link)         cmd_link ;;
     doctor)       cmd_doctor ;;
+    key)          cmd_key "$@" ;;
+    github|gh)    cmd_github ;;
     help|-h|--help) usage ;;
     *)            log_err "unknown command: $cmd"; printf '\n'; usage; exit 1 ;;
   esac
