@@ -1,0 +1,5 @@
+# A Mac that only needs to browse, edit and run an agent.
+# VMs, loaner machines, test boxes.
+core
+mac-base
+mac-apps

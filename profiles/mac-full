@@ -1,0 +1,7 @@
+# Daily driver, everything except work-specific config.
+# Add that with: --with work-harper
+core
+mac-base
+mac-langs
+mac-apps
+mac-apps-extra

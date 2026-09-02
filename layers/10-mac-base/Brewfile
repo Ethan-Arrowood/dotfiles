@@ -1,0 +1,26 @@
+# Base CLI toolkit. Format: "<formula|cask|tap> <name>".
+
+formula gh                      # GitHub CLI
+formula git-delta               # nicer git diffs
+formula jq                      # JSON
+formula yq                      # YAML
+formula ripgrep                 # rg
+formula fd                      # friendlier find
+formula fzf                     # fuzzy finder
+formula bat                     # cat with syntax highlighting
+formula eza                     # modern ls
+formula tree
+formula wget
+formula watch
+formula htop
+formula tmux
+formula mkcert                  # local TLS certs
+formula gnupg                   # commit signing
+formula pinentry-mac            # graphical passphrase prompt
+formula starship                # prompt
+formula zsh-completions
+formula zsh-autosuggestions
+formula zsh-syntax-highlighting
+
+cask font-fira-code
+cask font-fira-code-nerd-font

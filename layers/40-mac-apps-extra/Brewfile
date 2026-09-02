@@ -1,0 +1,15 @@
+# Everything that makes a daily-driver machine pleasant but that a VM or a
+# short-lived box does not need. Drop this whole layer with:
+#   dotfiles install --profile mac-full --without mac-apps-extra
+# or comment out individual lines here.
+
+cask slack
+cask zoom
+cask spotify
+cask discord
+cask podman-desktop
+cask postman
+cask daisydisk
+
+# Not available through Homebrew — install from the App Store or vendor:
+#   LastPass, NordLayer, Asana, Affinity, FileZilla

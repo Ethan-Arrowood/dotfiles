@@ -1,0 +1,10 @@
+# Language toolchains and native build dependencies.
+
+formula fnm                     # Node version manager
+formula cmake
+formula ninja
+formula ccache                  # caches C++ objects across branch switches
+formula pkg-config
+formula openjdk
+formula graphviz
+formula poppler
