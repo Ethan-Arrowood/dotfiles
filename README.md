@@ -39,7 +39,7 @@ dotfiles install --profile core --with mac-apps                # build your own
 | `mac-langs` | macOS | Node (fnm), Rust (rustup), Python (uv), C/C++, Java |
 | `mac-apps` | macOS | Chrome, VS Code, Claude, Ghostty, Rectangle |
 | `mac-apps-extra` | macOS | Slack, Zoom, Spotify, Discord, Podman, Postman |
-| `work-harper` | any | Harper git identity and dev-server aliases (opt-in) |
+| `work-harper` | any | Harper dev-server aliases (opt-in; no identity override) |
 
 `core` is the only layer that has to work everywhere, so it assumes nothing:
 no Homebrew, no Node, no GUI. Every optional integration in it — starship, fzf,
