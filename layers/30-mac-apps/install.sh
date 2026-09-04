@@ -22,6 +22,34 @@ apps_vscode_cli() {
   run "linking code cli" bash -c "mkdir -p '$HOME/.local/bin' && ln -sf '$bin' '$HOME/.local/bin/code'"
 }
 
+# Chrome policies, written to the user preference domain. An MDM-pushed
+# managed preference always wins over these, which is the correct precedence
+# on a work machine -- these fill gaps, they do not fight IT.
+#
+# Verify what actually took effect at chrome://policy.
+apps_chrome_defaults() {
+  is_macos || return 0
+  local -a policies=(
+    # Dashlane owns credentials; stop Chrome competing for the same job.
+    "PasswordManagerEnabled -bool false"
+    "AutofillAddressEnabled -bool false"
+    "AutofillCreditCardEnabled -bool false"
+    # Quality of life.
+    "PromotionalTabsEnabled -bool false"
+    "DefaultBrowserSettingEnabled -bool false"
+    "MetricsReportingEnabled -bool false"
+    "RestoreOnStartup -int 1"
+  )
+  local p
+  for p in "${policies[@]}"; do
+    # shellcheck disable=SC2086
+    run "defaults write com.google.Chrome $p" defaults write com.google.Chrome $p
+  done
+  log_warn "Chrome policy changes need a full restart of Chrome; confirm at chrome://policy"
+  return 0
+}
+
 brew_bundle "$LAYER_DIR/Brewfile"
 apps_claude_code
 apps_vscode_cli
+apps_chrome_defaults

@@ -4,3 +4,10 @@
 cask google-chrome
 cask visual-studio-code
 cask claude                     # Claude desktop app
+
+# Dashlane ships no macOS app any more -- it is a browser extension plus this
+# CLI. Note: the formula depends on yarn, which pulls Homebrew's node. That is
+# a second node alongside fnm's, but fnm prepends its shims to PATH so your
+# shell keeps using fnm's version; brew's is only used by the dcli wrapper.
+tap dashlane/tap
+formula dashlane/tap/dashlane-cli

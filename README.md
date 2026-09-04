@@ -178,16 +178,25 @@ Two modes, chosen by `DOTFILES_SIGNING` (default `auto`):
 
 | Mode | Behaviour |
 | --- | --- |
-| `auto` | gpg if key `79007EFD4678CB94` is in the keyring, else the ssh key, else unsigned |
-| `gpg` | force gpg |
+| `auto` | the ssh key if there is one, else gpg key `79007EFD4678CB94`, else unsigned |
 | `ssh` | force ssh signing — no gpg, no gpg-agent, no pinentry |
+| `gpg` | force gpg |
 | `off` | no signing |
 
-`auto` is what makes a new machine painless: it signs with your ssh key
-immediately, and upgrades itself to gpg the moment you import that key.
+**`auto` prefers ssh.** Every machine this repo sets up has an ssh key; it has
+no agent, pinentry or expiry to manage, and it signs inside a devcontainer over
+a forwarded agent with no extra setup. gpg is the fallback for a machine that
+has the gpg key but no ssh key, and stays reachable with `DOTFILES_SIGNING=gpg`.
+
 Neither mode is written into `~/.gitconfig` — both go to a generated include,
-so a machine without any key gets working git rather than a git that fails on
-every commit.
+so a machine with no key at all gets working git rather than a git that fails
+on every commit. Explicit `DOTFILES_SIGNING=ssh` with no ssh key present
+refuses outright rather than writing a config that points at a missing file.
+
+The catch with ssh signing: GitHub shows **Unverified** until the key is
+uploaded a *second* time as a signing key. Pushes work either way, so it is
+easy to miss — `dotfiles install` checks for this and tells you to run
+`dotfiles github`.
 
 SSH signing also writes `~/.ssh/allowed_signers`, without which git can create
 signatures but not verify its own.
@@ -269,9 +278,10 @@ they get crawled. A private repo is readable by every token with `repo` scope
 
 Three options, in order of preference:
 
-1. **Don't move it.** Use `DOTFILES_SIGNING=ssh` and let the new machine sign
-   with its own ssh key. Per-machine keys beat one portable key: nothing
-   sensitive crosses the network, and revoking one machine is one click.
+1. **Don't move it.** This is now the default — `auto` signs with the machine's
+   own ssh key. Per-machine keys beat one portable key: nothing sensitive
+   crosses the network, and revoking one machine is one click. The rest of this
+   section is the fallback for when you specifically want gpg back.
 2. **Password manager.** The key's own UID says `(Dashlane)` — store the
    armored export as a secure note. Purpose-built for exactly this.
 3. **Encrypted file, stored anywhere.** If you want the convenience of pulling
@@ -283,8 +293,18 @@ Three options, in order of preference:
 
    # new machine
    dotfiles key import ~/gpg-signing-key.age
-   dotfiles install                 # picks it up, switches signing to gpg
+   DOTFILES_SIGNING=gpg dotfiles install
    ```
+
+   Or skip the file entirely, since the key is already in your vault:
+
+   ```bash
+   dcli sync
+   dotfiles key import --dashlane "GPG signing key"   # by title, or dl://<id>
+   ```
+
+   This refuses anything that is not a `PRIVATE KEY BLOCK`, which catches the
+   common mistake of having stored only the public export.
 
    The output is age-encrypted (or `gpg --symmetric` if age isn't installed) on
    top of the passphrase already on the key, so the file is an opaque blob.

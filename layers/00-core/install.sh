@@ -9,9 +9,12 @@ CORE_GPG_KEY="${CORE_GPG_KEY:-79007EFD4678CB94}"
 CORE_EMAIL="${CORE_EMAIL:-ethan@arrowood.dev}"
 CORE_SSH_KEY="${CORE_SSH_KEY:-$HOME/.ssh/id_ed25519}"
 
-# auto | gpg | ssh | off. auto prefers gpg when its key is in the keyring,
-# otherwise falls back to the ssh key, so a fresh machine signs immediately
-# without anyone having to move a gpg private key onto it.
+# auto | gpg | ssh | off.
+#
+# auto prefers ssh: every machine set up by this repo has an ssh key, it needs
+# no agent/pinentry/expiry management, and it works in a devcontainer over a
+# forwarded agent. gpg is the fallback for a machine that has the gpg key but
+# no ssh key, and stays available explicitly with DOTFILES_SIGNING=gpg.
 DOTFILES_SIGNING="${DOTFILES_SIGNING:-auto}"
 
 core_install_packages() {
@@ -139,10 +142,10 @@ core_signing_mode() {
   case "$DOTFILES_SIGNING" in
     gpg|ssh|off) printf '%s' "$DOTFILES_SIGNING"; return 0 ;;
   esac
-  if has gpg && gpg --list-secret-keys "$CORE_GPG_KEY" >/dev/null 2>&1; then
-    printf 'gpg'
-  elif [[ -f "$CORE_SSH_KEY.pub" ]]; then
+  if [[ -f "$CORE_SSH_KEY.pub" ]]; then
     printf 'ssh'
+  elif has gpg && gpg --list-secret-keys "$CORE_GPG_KEY" >/dev/null 2>&1; then
+    printf 'gpg'
   else
     printf 'off'
   fi
@@ -185,6 +188,17 @@ SIGNING
       ;;
 
     ssh)
+      # Explicit DOTFILES_SIGNING=ssh on a machine with no key would otherwise
+      # write a gitconfig pointing at a file that does not exist, and every
+      # commit would fail. Refuse instead.
+      if [[ ! -f "$CORE_SSH_KEY.pub" ]]; then
+        log_err "DOTFILES_SIGNING=ssh but there is no key at $(pretty_path "$CORE_SSH_KEY").pub"
+        log_warn "leaving signing unconfigured; generate a key then re-run:"
+        printf '         ssh-keygen -t ed25519 -C "%s" -f "%s"\n\n' "$CORE_EMAIL" "$(pretty_path "$CORE_SSH_KEY")"
+        [[ -f "$out" ]] && run "removing stale $(pretty_path "$out")" rm -f "$out"
+        return 0
+      fi
+
       # allowed_signers is what lets `git log --show-signature` verify locally;
       # without it git can sign but not check its own signatures.
       local signers="$HOME/.ssh/allowed_signers"

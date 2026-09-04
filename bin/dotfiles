@@ -317,8 +317,53 @@ cmd_install() {
     printf '  dry run complete — re-run without --dry-run to apply\n\n'
   else
     [[ -d "${DOTFILES_BACKUP_DIR:-}" ]] && printf '  replaced files backed up to %s\n' "$(pretty_path "$DOTFILES_BACKUP_DIR")"
-    printf '  open a new shell, or: %sexec zsh%s\n\n' "$_C_BOLD" "$_C_RESET"
+    printf '  open a new shell, or: %sexec zsh%s\n' "$_C_BOLD" "$_C_RESET"
+    print_next_steps
   fi
+}
+
+# What is left that this script cannot do itself. Only prints steps that
+# actually still apply, so a finished machine prints nothing.
+print_next_steps() {
+  local ssh_key="${CORE_SSH_KEY:-$HOME/.ssh/id_ed25519}"
+  local -a steps=()
+
+  [[ -f "$ssh_key" ]] \
+    || steps+=("generate an ssh key:  ssh-keygen -t ed25519 -C \"ethan@arrowood.dev\" -f $(pretty_path "$ssh_key")")
+
+  if has gh; then
+    if ! gh auth status >/dev/null 2>&1; then
+      steps+=("authenticate with GitHub (browser + 2FA):  gh auth login")
+      steps+=("then register your keys:  dotfiles github")
+    elif [[ -f "$ssh_key.pub" ]] \
+      && ! gh ssh-key list 2>/dev/null | grep -qF "$(awk '{print $2}' "$ssh_key.pub")"; then
+      steps+=("register your ssh key with GitHub:  dotfiles github")
+    fi
+  fi
+
+  if [[ ! -f "$STATE_DIR/gitconfig.signing" ]]; then
+    if [[ -f "$ssh_key.pub" ]]; then
+      steps+=("commits are unsigned — enable it with: DOTFILES_SIGNING=ssh dotfiles install")
+    else
+      steps+=("commits are unsigned — create the ssh key above, then re-run: dotfiles install")
+    fi
+  elif [[ "$(git config --global gpg.format 2>/dev/null)" == "ssh" ]] && has gh \
+    && gh auth status >/dev/null 2>&1 && [[ -f "$ssh_key.pub" ]]; then
+    # Signing with ssh only shows Verified on GitHub once the key is uploaded a
+    # SECOND time, as a signing key. Easy to miss: pushes work either way.
+    local signing_keys; signing_keys="$(gh ssh-key list --type signing 2>/dev/null || true)"
+    if [[ -z "$signing_keys" ]] || ! grep -qF "$(awk '{print $2}' "$ssh_key.pub")" <<< "$signing_keys"; then
+      steps+=("commits sign locally but GitHub will show Unverified until the key is")
+      steps+=("    uploaded as a SIGNING key too:  dotfiles github")
+    fi
+  fi
+
+  [[ ${#steps[@]} -eq 0 ]] && { printf '\n'; return 0; }
+  printf '\n%s  Next:%s\n' "$_C_BOLD" "$_C_RESET"
+  local st
+  for st in "${steps[@]}"; do printf '    - %s\n' "$st"; done
+  printf '\n'
+  return 0
 }
 
 main() {

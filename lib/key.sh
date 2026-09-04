@@ -21,6 +21,8 @@ dotfiles key — move the signing key between machines, safely
 
   dotfiles key export [-o FILE]   encrypt this machine's gpg secret key
   dotfiles key import FILE        decrypt and import it on a new machine
+  dotfiles key import --dashlane <ref>
+                                  pull it straight from your Dashlane vault
   dotfiles key status             what signing material this machine has
 
 The exported file is encrypted with a passphrase you choose, on top of the
@@ -29,9 +31,13 @@ passphrase already on the key itself. Store it wherever is convenient.
   # old machine
   dotfiles key export -o ~/Dropbox/gpg-signing-key.age
 
-  # new machine
+  # new machine, from a file
   dotfiles key import ~/Dropbox/gpg-signing-key.age
   dotfiles install --profile mac-dev
+
+  # ...or straight from Dashlane, no file to move at all
+  dcli sync
+  dotfiles key import --dashlane "GPG signing key"
 
 Do NOT store an unencrypted `gpg --export-secret-keys` dump in a git repo or
 gist. A "secret" gist is unlisted, not private: anyone with the URL can read
@@ -108,8 +114,52 @@ key_export() {
   printf '  manager, NOT next to the file.\n\n'
 }
 
+# Pull the armored key straight out of the Dashlane vault, so a new machine
+# never needs a file copied onto it by hand.
+key_import_dashlane() {
+  local ref="${1:?usage: dotfiles key import --dashlane <dl://id | title>}"
+  has dcli || log_die "dcli is not installed (brew install dashlane/tap/dashlane-cli)"
+  has gpg  || log_die "gpg is not installed"
+  [[ "$ref" == dl://* ]] || ref="dl://$ref"
+
+  log_head "Importing from Dashlane ($ref)"
+  printf '  dcli will prompt for your master password if the session is locked.\n\n'
+
+  local old_umask; old_umask="$(umask)"; umask 077
+  local tmp; tmp="$(mktemp)"
+  # shellcheck disable=SC2064
+  trap "rm -f '$tmp'; umask $old_umask" RETURN
+
+  dcli read "$ref" > "$tmp" 2>/dev/null || log_die "dcli read failed — check the reference with: dcli password <title> -o json"
+  [[ -s "$tmp" ]] || log_die "dcli returned nothing for $ref"
+  grep -q 'PRIVATE KEY BLOCK' "$tmp" \
+    || log_die "that secret is not a PGP private key (a public-key export will not restore signing)"
+
+  gpg --import "$tmp" || log_die "gpg import failed"
+  key_trust
+  log_ok "imported from Dashlane"
+  printf '\n  Now re-run the installer so git picks it up:\n    dotfiles install\n\n'
+}
+
+# An imported key carries no owner trust, and git refuses to sign with a key
+# it does not ultimately trust.
+key_trust() {
+  local gpg_key="${CORE_GPG_KEY:-79007EFD4678CB94}"
+  gpg --list-secret-keys "$gpg_key" >/dev/null 2>&1 || return 0
+  printf '%s\n' "trust
+5
+y
+quit" | gpg --command-fd 0 --edit-key "$gpg_key" >/dev/null 2>&1 \
+    && log_ok "set ultimate owner trust on $gpg_key" \
+    || log_warn "could not set owner trust; run: gpg --edit-key $gpg_key trust"
+  return 0
+}
+
 key_import() {
-  local file="${1:?usage: dotfiles key import <file>}"
+  if [[ "${1:-}" == "--dashlane" ]]; then
+    shift; key_import_dashlane "$@"; return $?
+  fi
+  local file="${1:?usage: dotfiles key import <file> | --dashlane <ref>}"
   [[ -f "$file" ]] || log_die "no such file: $file"
   has gpg || log_die "gpg is not installed"
 
@@ -135,17 +185,7 @@ key_import() {
 
   gpg --import "$tmp" || log_die "gpg import failed"
 
-  local gpg_key="${CORE_GPG_KEY:-79007EFD4678CB94}"
-  # An imported key carries no owner trust, and git refuses to sign with a key
-  # it does not ultimately trust.
-  if gpg --list-secret-keys "$gpg_key" >/dev/null 2>&1; then
-    printf '%s\n' "trust
-5
-y
-quit" | gpg --command-fd 0 --edit-key "$gpg_key" >/dev/null 2>&1 \
-      && log_ok "set ultimate owner trust on $gpg_key" \
-      || log_warn "could not set owner trust; run: gpg --edit-key $gpg_key trust"
-  fi
+  key_trust
 
   log_ok "imported"
   printf '\n  Now re-run the installer so git picks it up:\n    dotfiles install\n\n'

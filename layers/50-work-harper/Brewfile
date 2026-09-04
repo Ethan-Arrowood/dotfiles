@@ -1,0 +1,4 @@
+# Harper-specific. LastPass is the work password manager; Dashlane (personal,
+# always) is handled in mac-apps and is a browser extension, not an app.
+
+cask lastpass
