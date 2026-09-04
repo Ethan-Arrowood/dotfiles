@@ -14,12 +14,9 @@ use std::path::PathBuf;
 pub type InstallFn = fn(&Ctx, &Layer) -> Result<()>;
 
 pub struct Layer {
-    /// Stable name used on the command line and in profiles.
+    /// Stable name. Used on the command line, in profiles, and as the
+    /// directory name under `layers/`.
     pub name: &'static str,
-    /// Numeric prefix fixing install order and shell-fragment source order.
-    pub order: u32,
-    /// Directory under `layers/`.
-    pub dir: &'static str,
     pub description: &'static str,
     pub platforms: &'static [Os],
     pub install: InstallFn,
@@ -27,7 +24,7 @@ pub struct Layer {
 
 impl Layer {
     pub fn path(&self, ctx: &Ctx) -> PathBuf {
-        ctx.root.join("layers").join(self.dir)
+        ctx.root.join("layers").join(self.name)
     }
     pub fn supports(&self, os: Os) -> bool {
         self.platforms.is_empty() || self.platforms.contains(&os)
@@ -48,54 +45,44 @@ impl Layer {
 pub const ANY: &[Os] = &[];
 pub const MACOS: &[Os] = &[Os::MacOs];
 
-/// Every layer, in install order.
+/// Every layer. **Declaration order is install order** -- and the order
+/// shell fragments are sourced in. There is no separate order field and no
+/// numeric prefix on the directories: one ordered list, one source of truth.
 pub fn registry() -> Vec<Layer> {
     use crate::layers;
     vec![
         Layer {
             name: "core",
-            order: 0,
-            dir: "00-core",
             description: "zsh + git + ssh. Portable base for any machine or container.",
             platforms: ANY,
             install: layers::core::install,
         },
         Layer {
             name: "mac-base",
-            order: 10,
-            dir: "10-mac-base",
             description: "Xcode CLT, Homebrew, CLI tools, macOS system defaults.",
             platforms: MACOS,
             install: layers::mac_base::install,
         },
         Layer {
             name: "mac-langs",
-            order: 20,
-            dir: "20-mac-langs",
             description: "Node (fnm), Rust (rustup), Python (uv), C/C++ build tools.",
             platforms: MACOS,
             install: layers::mac_langs::install,
         },
         Layer {
             name: "mac-apps",
-            order: 30,
-            dir: "30-mac-apps",
             description: "Essential apps: Chrome, VS Code, Claude, Ghostty, Dashlane CLI.",
             platforms: MACOS,
             install: layers::mac_apps::install,
         },
         Layer {
             name: "mac-apps-extra",
-            order: 40,
-            dir: "40-mac-apps-extra",
             description: "Quality-of-life apps: Slack, Zoom, Spotify, Discord, containers.",
             platforms: MACOS,
             install: layers::mac_apps_extra::install,
         },
         Layer {
             name: "work-harper",
-            order: 50,
-            dir: "50-work-harper",
             description: "Harper dev-server aliases + LastPass. Opt-in only.",
             platforms: ANY,
             install: layers::work_harper::install,
@@ -162,7 +149,9 @@ pub fn resolve(
         wanted.remove(n);
     }
 
-    let mut selected: Vec<Layer> = registry()
+    // Filtering the registry preserves its declaration order, which is the
+    // install order -- no separate sort needed.
+    let selected: Vec<Layer> = registry()
         .into_iter()
         .filter(|l| wanted.remove(l.name))
         .collect();
@@ -170,7 +159,6 @@ pub fn resolve(
     if let Some(unknown) = wanted.iter().next() {
         bail!("profile '{profile}' names unknown layer '{unknown}'");
     }
-    selected.sort_by_key(|l| l.order);
 
     if selected.is_empty() {
         bail!("no layers selected");
@@ -183,32 +171,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_is_ordered_and_unique() {
+    fn layer_names_are_unique() {
         let r = registry();
-        let mut orders: Vec<u32> = r.iter().map(|l| l.order).collect();
-        let mut sorted = orders.clone();
-        sorted.sort();
-        assert_eq!(orders, sorted, "registry must be declared in install order");
-        orders.dedup();
-        assert_eq!(orders.len(), r.len(), "duplicate order keys");
-
         let mut names: Vec<&str> = r.iter().map(|l| l.name).collect();
-        names.sort();
         let count = names.len();
+        names.sort();
         names.dedup();
         assert_eq!(names.len(), count, "duplicate layer names");
     }
 
     #[test]
-    fn every_layer_dir_starts_with_its_order() {
+    fn core_is_always_first() {
+        // Everything else assumes zsh, git and ssh are already in place.
+        assert_eq!(registry().first().unwrap().name, "core");
+    }
+
+    #[test]
+    fn every_layer_has_an_asset_directory() {
+        // The name IS the directory now, so a typo would silently produce a
+        // layer that installs nothing.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         for l in registry() {
-            let prefix = l.dir.split('-').next().unwrap();
-            assert_eq!(
-                prefix.parse::<u32>().unwrap(),
-                l.order,
-                "{} directory prefix does not match its order",
-                l.name
-            );
+            let dir = root.join("layers").join(l.name);
+            assert!(dir.is_dir(), "layer '{}' has no {}", l.name, dir.display());
         }
     }
 

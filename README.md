@@ -110,15 +110,21 @@ that means a test harness with a sandboxed `$HOME`. File operations follow
 ## How it works
 
 ```
-layers/00-core/
+layers/core/
 ├── home/          symlinked into $HOME
 ├── shell/*.sh     POSIX fragments — sourced by bash and zsh
 ├── zsh/*.zsh      zsh-only fragments
 └── ssh/*.conf     ~/.ssh/config.d/ fragments
 ```
 
-The numeric prefix sets both install order and shell-source order, and a test
-asserts it matches the layer's declared `order`.
+The directory name **is** the layer name, and install order is the declaration
+order of `registry()` in `src/layer.rs` — one ordered list, one source of
+truth. (The shell version numbered these directories because a glob decided the
+order; nothing globs any more, so the numbers were just a second place for the
+ordering to drift.)
+
+Numbers on the *fragment files* are still load-bearing: they order files
+**within** a layer, and that comes from a filesystem sort.
 
 `~/.zshrc` is a three-line loader symlinked out of this repo. The real work
 happens in `~/.config/dotfiles/init.sh`, generated at install time, which pins
@@ -126,9 +132,9 @@ happens in `~/.config/dotfiles/init.sh`, generated at install time, which pins
 
 ```sh
 # --- core ---
-. "$DOTFILES_ROOT/layers/00-core/shell/10-env.sh"
+. "$DOTFILES_ROOT/layers/core/shell/10-env.sh"
 if [ -n "${ZSH_VERSION:-}" ]; then
-  . "$DOTFILES_ROOT/layers/00-core/zsh/00-options.zsh"
+  . "$DOTFILES_ROOT/layers/core/zsh/00-options.zsh"
 fi
 ```
 
@@ -139,6 +145,12 @@ no-op when already done.
 Files in `$HOME` are symlinks back into the repo, so `vim ~/.zshrc` and
 `git diff` here show the same edit. Anything already present is moved to
 `~/.dotfiles-backup/<timestamp>/` first.
+
+One consequence to watch: an installer that appends to `~/.zshrc` (uv and
+rustup both do) follows the symlink and writes **into this repo**. That shows
+up as an unexpected `git diff` here rather than as untracked local drift, which
+is the good version of the problem — but review it rather than committing it
+blind.
 
 ## Adding a layer
 
@@ -157,17 +169,15 @@ and an entry in the `registry()` in `src/layer.rs`:
 ```rust
 Layer {
     name: "my-thing",
-    order: 60,
-    dir: "60-my-thing",
     description: "What it does.",
     platforms: ANY,          // or MACOS
     install: layers::my_thing::install,
 },
 ```
 
-Then create `layers/60-my-thing/` for its assets. It appears in `dotfiles list`
-immediately, and the registry tests will fail if the order or directory prefix
-disagree.
+Position in that list is the install order. Then create `layers/my-thing/` for
+its assets — a test fails if the directory is missing, since the name is the
+only thing pointing at it. It appears in `dotfiles list` immediately.
 
 Helpers available: `ui::{head,step,ok,skip,warn,detail}`, `link::{link_file,
 link_home_dir,write_file}`, `brew::bundle`, `sys::{has,which,is_macos,

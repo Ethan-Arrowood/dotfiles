@@ -57,12 +57,12 @@ pub fn render(ctx: &Ctx, profile: &str, layers: &[Layer]) -> String {
         }
         let _ = writeln!(out, "\n# --- {} ---", layer.name);
         for f in sh {
-            let _ = writeln!(out, ". \"$DOTFILES_ROOT/layers/{}/shell/{f}\"", layer.dir);
+            let _ = writeln!(out, ". \"$DOTFILES_ROOT/layers/{}/shell/{f}\"", layer.name);
         }
         if !zsh.is_empty() {
             let _ = writeln!(out, "if [ -n \"${{ZSH_VERSION:-}}\" ]; then");
             for f in zsh {
-                let _ = writeln!(out, "  . \"$DOTFILES_ROOT/layers/{}/zsh/{f}\"", layer.dir);
+                let _ = writeln!(out, "  . \"$DOTFILES_ROOT/layers/{}/zsh/{f}\"", layer.name);
             }
             let _ = writeln!(out, "fi");
         }
@@ -106,7 +106,7 @@ mod tests {
     #[test]
     fn zsh_fragments_are_guarded_and_shell_fragments_are_not() {
         let tmp = std::env::temp_dir().join(format!("dfinit{}", std::process::id()));
-        let ld = tmp.join("layers/00-core");
+        let ld = tmp.join("layers/core");
         std::fs::create_dir_all(ld.join("shell")).unwrap();
         std::fs::create_dir_all(ld.join("zsh")).unwrap();
         std::fs::write(ld.join("shell/10-a.sh"), "").unwrap();
@@ -116,8 +116,8 @@ mod tests {
         let core = layer::find("core").unwrap();
         let out = render(&ctx, "core", &[core]);
 
-        let sh_line = ". \"$DOTFILES_ROOT/layers/00-core/shell/10-a.sh\"";
-        let zsh_line = "  . \"$DOTFILES_ROOT/layers/00-core/zsh/00-b.zsh\"";
+        let sh_line = ". \"$DOTFILES_ROOT/layers/core/shell/10-a.sh\"";
+        let zsh_line = "  . \"$DOTFILES_ROOT/layers/core/zsh/00-b.zsh\"";
         assert!(out.contains(sh_line), "{out}");
         assert!(out.contains(zsh_line), "{out}");
 
@@ -132,8 +132,8 @@ mod tests {
     #[test]
     fn no_runtime_globbing_or_word_splitting() {
         let tmp = std::env::temp_dir().join(format!("dfinit2{}", std::process::id()));
-        std::fs::create_dir_all(tmp.join("layers/00-core/shell")).unwrap();
-        std::fs::write(tmp.join("layers/00-core/shell/a.sh"), "").unwrap();
+        std::fs::create_dir_all(tmp.join("layers/core/shell")).unwrap();
+        std::fs::write(tmp.join("layers/core/shell/a.sh"), "").unwrap();
         let ctx = test_ctx(&tmp);
         let out = render(&ctx, "core", &[layer::find("core").unwrap()]);
         assert!(
