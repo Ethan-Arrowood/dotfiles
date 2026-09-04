@@ -192,6 +192,74 @@ every commit.
 SSH signing also writes `~/.ssh/allowed_signers`, without which git can create
 signatures but not verify its own.
 
+## Machines, containers and remote boxes
+
+The rule: **the private key lives on laptops only.** Everything else borrows it
+through the agent, or gets its own.
+
+| Where | Auth (push) | Signing | What to do |
+| --- | --- | --- | --- |
+| Your laptops | own key each | own key each | `dotfiles install` |
+| Devcontainer | host agent, forwarded | host agent, forwarded | `dotfiles install --profile core` inside |
+| Remote box you use often | own key | own key | `dotfiles install --profile core` there |
+| Remote box, one-off | forwarded agent | forwarded agent | `ssh -A`, scoped to that host |
+| CI | deploy key / token | usually unsigned | out of scope for this repo |
+
+### Why the agent is enough
+
+`ssh-keygen -Y sign` will use a key held by the agent when the private key file
+is not on disk. So a forwarded agent gives a container or remote box the
+ability to both push *and* sign, while the private key never leaves your
+laptop. Verified: with the private key file deleted and only the agent holding
+it, `git commit` produces `%G? = G`.
+
+This is the practical argument for ssh signing over gpg. Agent forwarding is
+built into ssh and into VS Code's devcontainer and Remote-SSH support. Doing
+the same with gpg means forwarding the gpg-agent socket via `RemoteForward`,
+with matching gpg versions and `extra-socket` configured on both ends — it
+works, but it is a thing you maintain.
+
+### Devcontainers, specifically
+
+VS Code already forwards your ssh agent and copies your `~/.gitconfig` into the
+container. That gets you push and the right author identity — but **not
+signing**, because the copied gitconfig's `[include]` lines point at
+`~/.config/dotfiles/gitconfig.signing`, which does not exist in the container.
+Git ignores missing includes silently, so commits come out unsigned with no
+warning.
+
+Fix it by running the core layer inside the container:
+
+```jsonc
+// .devcontainer/devcontainer.json
+{
+  "postCreateCommand": "git clone https://github.com/Ethan-Arrowood/dotfiles ~/dotfiles && ~/dotfiles/bin/dotfiles install --profile core -y",
+  "mounts": ["source=${localEnv:HOME}/.ssh/id_ed25519.pub,target=/tmp/id_ed25519.pub,type=bind,readonly"]
+}
+```
+
+The core layer detects the container, leaves the login shell alone, skips key
+generation, and configures signing against the forwarded agent. Only the
+*public* key is mounted — the private key stays on the host.
+
+### Remote servers
+
+For a box you use regularly, give it its own key and run
+`dotfiles install --profile core` on it. Per-machine keys mean revoking one
+machine is one click in GitHub, with nothing else to rotate.
+
+For a one-off, forward the agent — but scope it to that host, never globally:
+
+```
+# ~/.ssh/config.d/50-mybox.conf
+Host mybox
+    ForwardAgent yes
+```
+
+`ForwardAgent yes` under `Host *` would hand your agent to every server you
+touch, and anyone with root on the far end can use it for as long as you are
+connected. That is why this repo's `99-defaults.conf` does not set it.
+
 ## Moving the signing key to a new machine
 
 **Do not put the private key in a repo or a gist.** A "secret" gist is

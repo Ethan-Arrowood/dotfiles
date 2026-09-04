@@ -80,6 +80,10 @@
 [include]
 	path = ~/.gitconfig.local
 
-# Work identity, applied only inside work checkouts.
-[includeIf "gitdir:~/dev/harperfast/"]
-	path = ~/.config/dotfiles/gitconfig.work
+# ethan@arrowood.dev is the identity everywhere -- no per-directory override.
+# If some repo ever needs a different address (a CLA, say), the pattern is:
+#
+#   [includeIf "gitdir:~/dev/somewhere/"]
+#   	path = ~/.config/dotfiles/gitconfig.somewhere
+#
+# with that file containing [user] email = ...
