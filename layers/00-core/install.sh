@@ -31,6 +31,11 @@ core_install_packages() {
 }
 
 # --- ssh --------------------------------------------------------------------
+#
+# Key material only: generate the key and load it into the agent. An ssh key is
+# part of setting up any machine, so this runs unconditionally and says nothing
+# about GitHub -- gh is not installed yet at this point in the layer order.
+# Registration is `dotfiles github`, once gh exists and is authenticated.
 
 core_ssh_config() {
   local cfg="$HOME/.ssh/config" inc="Include ~/.ssh/config.d/*"
@@ -78,8 +83,15 @@ core_ssh_key() {
   fi
   # ssh-keygen prompts for a passphrase. Generating a passphraseless key
   # unattended is not something to do behind someone's back.
-  if [[ "${DOTFILES_ASSUME_YES:-0}" == "1" ]] || is_container || [[ ! -t 0 ]]; then
-    log_warn "no ssh key at $(pretty_path "$CORE_SSH_KEY"); generate one with:"
+  # Containers borrow the host key over a forwarded agent, so they need none.
+  # Otherwise a key is required, and -y does not excuse skipping it: -y means
+  # "don't ask me yes/no questions", and a passphrase is input, not a question.
+  if is_container; then
+    log_skip "container: using the forwarded agent rather than a local key"
+    return 0
+  fi
+  if ! { : </dev/tty; } 2>/dev/null; then
+    log_warn "no ssh key at $(pretty_path "$CORE_SSH_KEY") and no terminal to set a passphrase on:"
     printf '         ssh-keygen -t ed25519 -C "%s" -f "%s"\n' "$CORE_EMAIL" "$(pretty_path "$CORE_SSH_KEY")"
     return 0
   fi
@@ -107,34 +119,6 @@ core_ssh_agent() {
   return 0
 }
 
-core_ssh_github() {
-  [[ -f "$CORE_SSH_KEY.pub" ]] || return 0
-  has gh || { log_skip "gh not installed; register the key manually at https://github.com/settings/keys"; return 0; }
-  [[ "${DOTFILES_DRY_RUN:-0}" == "1" ]] && { printf '%s  dry check github ssh keys%s\n' "$_C_DIM" "$_C_RESET"; return 0; }
-  gh auth status >/dev/null 2>&1 || { log_skip "gh not authenticated; run: gh auth login"; return 0; }
-
-  local pub; pub="$(awk '{print $1" "$2}' "$CORE_SSH_KEY.pub")"
-  if gh ssh-key list 2>/dev/null | grep -qF "${pub#* }"; then
-    log_skip "ssh key already registered on github"
-    return 0
-  fi
-
-  # Adding a key changes the GitHub account, so it is never done unattended:
-  # -y covers local changes, not remote ones.
-  if [[ ! -t 0 ]] || [[ "${DOTFILES_ASSUME_YES:-0}" == "1" ]]; then
-    log_warn "ssh key is not on your github account. Register it with:"
-    printf '         gh ssh-key add %s --title "%s"\n' "$(pretty_path "$CORE_SSH_KEY").pub" "$(hostname -s)"
-    return 0
-  fi
-  if confirm "Add this ssh key to your GitHub account as \"$(hostname -s)\"?"; then
-    gh ssh-key add "$CORE_SSH_KEY.pub" --title "$(hostname -s)" \
-      && log_ok "registered ssh key on github" \
-      || log_warn "gh ssh-key add failed (needs the admin:public_key scope)"
-  else
-    log_skip "github registration declined"
-  fi
-  return 0
-}
 
 # --- commit signing ----------------------------------------------------------
 
@@ -230,17 +214,16 @@ SIGNING
 	gpgsign = true
 SIGNING
       log_ok "signing with ssh key $(pretty_path "$CORE_SSH_KEY")"
-      has gh && log_warn "GitHub needs this key registered as a SIGNING key too (separate from auth):
-         gh auth refresh -h github.com -s admin:ssh_signing_key
-         gh ssh-key add $(pretty_path "$CORE_SSH_KEY").pub --type signing --title \"$(hostname -s) signing\"" || true
+      # Whether GitHub also needs this uploaded as a signing key is checked at
+      # the end of the run, where gh exists and its state can actually be read.
       ;;
 
     off)
       [[ -f "$out" ]] && run "removing stale $(pretty_path "$out")" rm -f "$out"
-      log_warn "no signing key available — commits will not be signed"
-      printf '       Options, cheapest first:\n'
-      printf '         dotfiles key import <file.age>   restore your gpg key (see: dotfiles key --help)\n'
-      printf '         DOTFILES_SIGNING=ssh dotfiles install ...   sign with the ssh key instead\n\n'
+      log_warn "no signing key on this machine — commits will not be signed"
+      printf '       Create the ssh key above and re-run; auto picks it up with no\n'
+      printf '       further configuration. To use gpg instead:\n'
+      printf '         dotfiles key import --dashlane <ref>   (or: import <file.age>)\n\n'
       ;;
   esac
   return 0
@@ -266,6 +249,5 @@ core_install_packages
 core_ssh_config
 core_ssh_key
 core_ssh_agent
-core_ssh_github
 core_configure_signing
 core_set_login_shell
