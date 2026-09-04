@@ -49,7 +49,31 @@ apps_chrome_defaults() {
   return 0
 }
 
+# Ghostty reads a plain text config, so it can be a dotfile like anything else.
+apps_ghostty_config() {
+  local src="$LAYER_DIR/config/ghostty/config"
+  [[ -r "$src" ]] || return 0
+
+  # Validate before linking. +validate-config exits 1 on a bad config, so the
+  # `|| rc=$?` matters: without it set -e aborts the whole install over a
+  # typo'd option.
+  local bin=/Applications/Ghostty.app/Contents/MacOS/ghostty
+  if [[ -x "$bin" ]] && [[ "${DOTFILES_DRY_RUN:-0}" != "1" ]]; then
+    local problems rc=0
+    problems="$("$bin" +validate-config --config-file="$src" 2>&1)" || rc=$?
+    if (( rc != 0 )); then
+      log_warn "ghostty config has problems (linking anyway; ghostty skips bad lines):"
+      printf '%s\n' "$problems" | sed 's/^/         /'
+    else
+      log_ok "ghostty config validates"
+    fi
+  fi
+
+  link_file "$src" "$HOME/.config/ghostty/config"
+}
+
 brew_bundle "$LAYER_DIR/Brewfile"
+apps_ghostty_config
 apps_claude_code
 apps_vscode_cli
 apps_chrome_defaults

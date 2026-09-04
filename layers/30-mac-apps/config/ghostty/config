@@ -1,0 +1,41 @@
+# Ghostty. Validate changes with:
+#   /Applications/Ghostty.app/Contents/MacOS/ghostty +validate-config
+# Full option list: `ghostty +show-config --default`, themes: `+list-themes`.
+
+# --- font -------------------------------------------------------------------
+# Terminal.app renders no ligatures, so Fira Code was half wasted there. Ghostty
+# turns them on automatically for a font that has them.
+font-family = FiraCode Nerd Font Mono
+font-size = 14
+
+# --- theme ------------------------------------------------------------------
+# Follows the system appearance; both halves must be real theme names.
+theme = light:Catppuccin Latte,dark:Catppuccin Mocha
+
+# --- keyboard ---------------------------------------------------------------
+# Unset by default, which is why alt+f / alt+b word movement and alt+backspace
+# delete-word do nothing in zsh out of the box. This is the single most useful
+# line in this file.
+macos-option-as-alt = true
+
+# --- window -----------------------------------------------------------------
+window-padding-x = 8
+window-padding-y = 4
+window-save-state = always
+macos-titlebar-style = tabs
+
+# --- behaviour --------------------------------------------------------------
+# `detect` already finds zsh; naming it skips the probe and fails loudly if the
+# integration ever breaks rather than silently doing nothing.
+shell-integration = zsh
+shell-integration-features = cursor,sudo,title
+
+copy-on-select = clipboard
+mouse-hide-while-typing = true
+confirm-close-surface = false
+scrollback-limit = 10000000
+
+# --- keybinds ---------------------------------------------------------------
+keybind = cmd+shift+enter=new_split:right
+keybind = cmd+shift+d=new_split:down
+keybind = cmd+shift+w=close_surface
