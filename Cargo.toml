@@ -1,0 +1,24 @@
+[package]
+name = "dotfiles"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.74"
+description = "Compose a machine from layers"
+license = "MIT"
+
+[[bin]]
+name = "dotfiles"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive", "wrap_help"] }
+dirs = "5"
+owo-colors = { version = "4", features = ["supports-colors"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

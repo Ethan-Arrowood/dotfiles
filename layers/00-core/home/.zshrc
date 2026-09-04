@@ -7,3 +7,5 @@
 
 # Machine-local, never tracked. Always last so it can override anything above.
 [ -r "$HOME/.zshrc.local" ] && . "$HOME/.zshrc.local"
+
+. "$HOME/.local/bin/env"

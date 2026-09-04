@@ -1,0 +1,56 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+  # The core layer has to work on a bare container, which is the only place
+  # that assumption gets tested honestly.
+  core-on-linux:
+    runs-on: ubuntu-latest
+    container: debian:bookworm-slim
+    steps:
+      - name: install prerequisites
+        run: apt-get update -qq && apt-get install -y -qq git curl build-essential
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+      - name: install the core profile
+        run: |
+          export DOTFILES_ROOT="$PWD"
+          ./target/release/dotfiles install --profile core --signing off -y
+      - name: the generated init must load in both shells
+        run: |
+          apt-get install -y -qq zsh
+          zsh -i -c 'echo "layers=$DOTFILES_LAYERS"; [[ -o autocd ]] || { echo "setopt did not stick"; exit 1; }'
+          bash -c 'source ~/.config/dotfiles/init.sh && alias gs >/dev/null || exit 1'
+      - name: second run must be idempotent
+        run: |
+          export DOTFILES_ROOT="$PWD"
+          ./target/release/dotfiles install --profile core --signing off -y | tee /tmp/second.log
+          grep -q "already linked" /tmp/second.log
+      - name: ssh signing must produce a verifiable commit
+        run: |
+          export DOTFILES_ROOT="$PWD"
+          ssh-keygen -q -t ed25519 -N "" -C "ci@example.invalid" -f ~/.ssh/id_ed25519
+          ./target/release/dotfiles install --profile core --signing ssh -y
+          mkdir -p /tmp/r && cd /tmp/r && git init -q
+          git commit -q --allow-empty -m "signing probe"
+          test "$(git log -1 --format=%G?)" = "G"

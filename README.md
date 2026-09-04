@@ -5,13 +5,53 @@ fresh MacBook; you pick how much of it applies.
 
 ```bash
 # fresh machine, nothing installed
-curl -fsSL https://raw.githubusercontent.com/Ethan-Arrowood/dotfiles/main/install.sh | bash -s -- --profile mac-dev
+curl -fsSL https://raw.githubusercontent.com/Ethan-Arrowood/dotfiles/main/install.sh | sh -s -- --profile mac-dev
 
 # already cloned
-./bin/dotfiles install --profile mac-dev
+dotfiles install --profile mac-dev
 ```
 
-Always safe to run twice. Add `--dry-run` to see the plan without touching anything.
+Always safe to run twice. Add `--dry-run` to see the plan without touching
+anything.
+
+## How it is built
+
+A Rust binary (the orchestrator) plus this repo (the layer assets) — the same
+split [chezmoi](https://chezmoi.io) uses. **Rust is not needed on the target
+machine**: `install.sh` downloads a prebuilt binary for the platform from
+GitHub Releases. It falls back to `cargo build` only if no release matches.
+
+The assets stay as plain text on purpose — Brewfiles, `.zshrc` fragments, ssh
+config, the Ghostty config. Those are configuration, not code, and they have to
+be symlinkable so an edit in `$HOME` and an edit in the repo are the same edit.
+Embedding them in the binary would break that.
+
+```
+src/            the orchestrator
+  layer.rs      registry: the single source of truth for which layers exist
+  layers/       one module per layer
+  shellinit.rs  generates ~/.config/dotfiles/init.sh
+  signing.rs    ssh vs gpg commit signing
+layers/         layer assets (symlinked into $HOME)
+profiles/       named layer sets
+```
+
+### Why not shell
+
+It was shell first. Five bugs in one sitting made the case for a rewrite, and
+each is now a test:
+
+| Bug | Cause | Test |
+| --- | --- | --- |
+| Layer loop broke at 2+ layers | zsh does not word-split unquoted vars | `no_runtime_globbing_or_word_splitting` |
+| Every `setopt` silently reverted | `local_options` restores on return | `zsh_fragments_are_guarded_...` |
+| Install truncated, no output | `has gh &&` returning 1 under `set -e` | `Result` makes it unrepresentable |
+| Install aborted on a bad config | unguarded `$(...)` under `set -e` | same |
+| Brewfile comments became package names | naive `read` | `trailing_comments_are_not_part_of_the_name` |
+
+Run them with `cargo test`. CI additionally installs the core profile in a bare
+`debian:bookworm-slim` container, checks a second run is idempotent, and asserts
+an ssh-signed commit verifies (`%G? = G`).
 
 ## Profiles
 
@@ -50,31 +90,39 @@ a sane built-in.
 
 ```bash
 dotfiles install [--profile NAME] [--with LAYER] [--without LAYER] [--dry-run] [--yes]
+                 [--signing auto|ssh|gpg|off]
 dotfiles list      # profiles and layers
 dotfiles status    # what this machine has installed, and where links point
 dotfiles link      # re-link $HOME files only, no packages
-dotfiles doctor    # check for problems (missing tools, broken links, key expiry)
+dotfiles doctor    # missing tools, broken links, key expiry
 dotfiles github    # register ssh + gpg keys with GitHub
 dotfiles key       # move the signing key between machines (export/import/status)
 ```
+
+### Safety
+
+Anything machine-global — `brew install`, `defaults write`, toolchain
+installers — is skipped when `$HOME` is not your real home directory, because
+that means a test harness with a sandboxed `$HOME`. File operations follow
+`$HOME` and stay contained; these do not, and would escape the sandbox.
+`DOTFILES_ALLOW_SANDBOXED_HOME=1` overrides it.
 
 ## How it works
 
 ```
 layers/00-core/
-├── layer.conf     name, description, supported platforms
-├── install.sh     idempotent install steps
 ├── home/          symlinked into $HOME
 ├── shell/*.sh     POSIX fragments — sourced by bash and zsh
-└── zsh/*.zsh      zsh-only fragments
+├── zsh/*.zsh      zsh-only fragments
+└── ssh/*.conf     ~/.ssh/config.d/ fragments
 ```
 
-The numeric prefix sets both install order and shell-source order.
+The numeric prefix sets both install order and shell-source order, and a test
+asserts it matches the layer's declared `order`.
 
 `~/.zshrc` is a three-line loader symlinked out of this repo. The real work
 happens in `~/.config/dotfiles/init.sh`, generated at install time, which pins
-`DOTFILES_ROOT` for the machine and lists the enabled layers' fragments as
-explicit `source` lines:
+`DOTFILES_ROOT` and lists each fragment as an explicit `source` line:
 
 ```sh
 # --- core ---
@@ -84,36 +132,48 @@ if [ -n "${ZSH_VERSION:-}" ]; then
 fi
 ```
 
-Nothing is copied or concatenated, so **editing** a fragment takes effect in the
-next shell. **Adding** a new fragment file means re-running `dotfiles install`
-so it gets listed — cheap, since every step is a no-op when already done.
+**Editing** a fragment takes effect in the next shell. **Adding** one means
+re-running `dotfiles install` so it gets listed — cheap, since every step is a
+no-op when already done.
 
-The list is generated rather than globbed at runtime for a reason: zsh doesn't
-word-split unquoted variables the way bash does, and it aborts on an unmatched
-glob — while the obvious guard for that, `setopt local_options null_glob`,
-silently reverts every `setopt` a sourced fragment performs. Explicit lines
-sidestep both, and a full four-layer startup measures ~0.05s.
-
-Files placed in `$HOME` are symlinks back into the repo, so `vim ~/.zshrc` and
-`git diff` in this repo show the same edit. Anything already there is moved to
+Files in `$HOME` are symlinks back into the repo, so `vim ~/.zshrc` and
+`git diff` here show the same edit. Anything already present is moved to
 `~/.dotfiles-backup/<timestamp>/` first.
 
 ## Adding a layer
 
-```bash
-mkdir -p layers/60-thing/{home,shell}
-cat > layers/60-thing/layer.conf <<'EOF'
-NAME=thing
-DESCRIPTION=What it does.
-PLATFORMS=any
-EOF
+Two steps. Add a module under `src/layers/`:
+
+```rust
+// src/layers/my_thing.rs
+pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
+    brew::bundle(ctx, &layer.path(ctx).join("Brewfile"))?;
+    Ok(())
+}
 ```
 
-Drop an `install.sh` (sourced with `$LAYER_DIR` set, plus `log_*`, `run`,
-`link_file`, `write_file`, `brew_bundle`, `has`), a `Brewfile`, and shell
-fragments as needed. It shows up in `dotfiles list` immediately.
+and an entry in the `registry()` in `src/layer.rs`:
 
-`Brewfile`s are plain lists, not `brew bundle` syntax — `formula <name>`,
+```rust
+Layer {
+    name: "my-thing",
+    order: 60,
+    dir: "60-my-thing",
+    description: "What it does.",
+    platforms: ANY,          // or MACOS
+    install: layers::my_thing::install,
+},
+```
+
+Then create `layers/60-my-thing/` for its assets. It appears in `dotfiles list`
+immediately, and the registry tests will fail if the order or directory prefix
+disagree.
+
+Helpers available: `ui::{head,step,ok,skip,warn,detail}`, `link::{link_file,
+link_home_dir,write_file}`, `brew::bundle`, `sys::{has,which,is_macos,
+is_container,allow_global_changes}`.
+
+`Brewfile`s are a plain list, not `brew bundle` syntax — `formula <name>`,
 `cask <name>`, `tap <name>`, one per line, `#` comments allowed. A cask that
 has been renamed or pulled warns and the run continues.
 
@@ -174,7 +234,7 @@ repo. Every upload asks first; nothing touches your account unattended.
 
 ## Commit signing
 
-Two modes, chosen by `DOTFILES_SIGNING` (default `auto`):
+Chosen by `--signing` (or `$DOTFILES_SIGNING`), default `auto`:
 
 | Mode | Behaviour |
 | --- | --- |
@@ -186,12 +246,12 @@ Two modes, chosen by `DOTFILES_SIGNING` (default `auto`):
 **`auto` prefers ssh.** Every machine this repo sets up has an ssh key; it has
 no agent, pinentry or expiry to manage, and it signs inside a devcontainer over
 a forwarded agent with no extra setup. gpg is the fallback for a machine that
-has the gpg key but no ssh key, and stays reachable with `DOTFILES_SIGNING=gpg`.
+has the gpg key but no ssh key, and stays reachable with `--signing gpg`.
 
 Neither mode is written into `~/.gitconfig` — both go to a generated include,
 so a machine with no key at all gets working git rather than a git that fails
-on every commit. Explicit `DOTFILES_SIGNING=ssh` with no ssh key present
-refuses outright rather than writing a config that points at a missing file.
+on every commit. Explicit `--signing ssh` with no ssh key present refuses
+outright rather than writing a config that points at a missing file.
 
 The catch with ssh signing: GitHub shows **Unverified** until the key is
 uploaded a *second* time as a signing key. Pushes work either way, so it is
@@ -242,7 +302,7 @@ Fix it by running the core layer inside the container:
 ```jsonc
 // .devcontainer/devcontainer.json
 {
-  "postCreateCommand": "git clone https://github.com/Ethan-Arrowood/dotfiles ~/dotfiles && ~/dotfiles/bin/dotfiles install --profile core -y",
+  "postCreateCommand": "curl -fsSL https://raw.githubusercontent.com/Ethan-Arrowood/dotfiles/main/install.sh | sh -s -- --profile core -y",
   "mounts": ["source=${localEnv:HOME}/.ssh/id_ed25519.pub,target=/tmp/id_ed25519.pub,type=bind,readonly"]
 }
 ```
@@ -293,7 +353,7 @@ Three options, in order of preference:
 
    # new machine
    dotfiles key import ~/gpg-signing-key.age
-   DOTFILES_SIGNING=gpg dotfiles install
+   dotfiles install --signing gpg
    ```
 
    Or skip the file entirely, since the key is already in your vault:
