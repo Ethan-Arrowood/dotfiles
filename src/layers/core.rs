@@ -73,7 +73,25 @@ fn ssh_config(ctx: &Ctx, layer_dir: &Path) -> Result<()> {
     let cfg = ssh_dir.join("config");
     const INCLUDE: &str = "Include ~/.ssh/config.d/*";
 
-    let existing = std::fs::read_to_string(&cfg).ok();
+    // `.ok()` here would map EVERY error to "absent" and then truncate: an
+    // unreadable, EISDIR, or dangling-symlink ~/.ssh/config would be replaced
+    // by a single Include line, with no backup, since the backup only happens
+    // on the Some() arm. Only NotFound means there is nothing there.
+    let existing = match std::fs::read_to_string(&cfg) {
+        Ok(text) => Some(text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => {
+            ui::error(&format!(
+                "cannot read {}: {e}. Leaving it alone rather than replacing it.",
+                ctx.pretty(&cfg)
+            ));
+            ui::detail(&format!(
+                "the managed fragments are already in {}; add this line yourself:\n  {INCLUDE}",
+                ctx.pretty(&config_d)
+            ));
+            return Ok(());
+        }
+    };
     match existing {
         None => {
             link::write_file(ctx, &cfg, &format!("{INCLUDE}\n"))?;
@@ -91,6 +109,15 @@ fn ssh_config(ctx: &Ctx, layer_dir: &Path) -> Result<()> {
             }
             std::fs::create_dir_all(&ctx.backup_dir)?;
             std::fs::write(ctx.backup_dir.join("ssh_config"), &text)?;
+            // If ~/.ssh/config is itself a symlink, fs::write follows it and
+            // edits the target -- which may well be a file tracked in this
+            // repo. Replace the link instead.
+            if std::fs::symlink_metadata(&cfg)
+                .map(|m| m.file_type().is_symlink())
+                .unwrap_or(false)
+            {
+                std::fs::remove_file(&cfg)?;
+            }
             std::fs::write(&cfg, format!("{INCLUDE}\n\n{text}"))?;
             link::chmod(&cfg, 0o600)?;
             ui::ok(&format!(
