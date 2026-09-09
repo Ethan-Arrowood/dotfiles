@@ -5,7 +5,20 @@ use crate::ctx::Ctx;
 use crate::ui;
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// Where a displaced file goes, preserving its location under the backup root.
+///
+/// Keyed on the basename alone, `~/.zshrc`, `~/.claude/rules/general.md` and
+/// `~/.claude/skills/general` all landed on top of each other -- and
+/// `fs::rename` silently replaces an existing file, so the earlier backup was
+/// destroyed without a word.
+fn backup_path(ctx: &Ctx, dst: &Path) -> PathBuf {
+    match dst.strip_prefix(&ctx.home) {
+        Ok(rel) => ctx.backup_dir.join(rel),
+        Err(_) => ctx.backup_dir.join(dst.strip_prefix("/").unwrap_or(dst)),
+    }
+}
 
 /// Symlink `src` to `dst`, backing up whatever was there.
 pub fn link_file(ctx: &Ctx, src: &Path, dst: &Path) -> Result<()> {
@@ -23,22 +36,45 @@ pub fn link_file(ctx: &Ctx, src: &Path, dst: &Path) -> Result<()> {
     }
 
     // symlink_metadata so a broken symlink still counts as present.
-    if fs::symlink_metadata(dst).is_ok() {
+    if let Ok(meta) = fs::symlink_metadata(dst) {
+        // A real directory is almost certainly the user's own content -- a
+        // hand-written skill, a config tree -- and moving it wholesale into a
+        // backup is too destructive to do silently.
+        if meta.is_dir() && !meta.file_type().is_symlink() {
+            ui::warn(&format!(
+                "{} is a real directory, not a link; leaving it alone",
+                ctx.pretty(dst)
+            ));
+            ui::detail(&format!(
+                "move or remove it if you want it replaced by\n  {}",
+                ctx.pretty(src)
+            ));
+            return Ok(());
+        }
+
+        let backup = backup_path(ctx, dst);
         if ctx.dry_run {
             ui::dry(&format!(
                 "back up {} -> {}",
                 ctx.pretty(dst),
-                ctx.pretty(&ctx.backup_dir)
+                ctx.pretty(&backup)
             ));
         } else {
-            fs::create_dir_all(&ctx.backup_dir)?;
-            let name = dst.file_name().context("destination has no file name")?;
-            fs::rename(dst, ctx.backup_dir.join(name))
-                .with_context(|| format!("backing up {}", dst.display()))?;
+            if let Some(parent) = backup.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            // Never write over an existing backup: rename replaces silently.
+            if fs::symlink_metadata(&backup).is_ok() {
+                anyhow::bail!(
+                    "refusing to overwrite an existing backup at {}",
+                    backup.display()
+                );
+            }
+            fs::rename(dst, &backup).with_context(|| format!("backing up {}", dst.display()))?;
             ui::warn(&format!(
-                "backed up existing {} -> {}/",
+                "backed up existing {} -> {}",
                 ctx.pretty(dst),
-                ctx.pretty(&ctx.backup_dir)
+                ctx.pretty(&backup)
             ));
         }
     }
@@ -97,7 +133,9 @@ pub fn write_file(ctx: &Ctx, dst: &Path, content: &str) -> Result<()> {
 
 /// Remove a generated file if present.
 pub fn remove_if_present(ctx: &Ctx, path: &Path) -> Result<()> {
-    if !path.exists() {
+    // symlink_metadata, not exists(): exists() follows the link and is false
+    // for a dangling one, so a broken symlink was never cleaned up.
+    if fs::symlink_metadata(path).is_err() {
         return Ok(());
     }
     if ctx.dry_run {
@@ -114,4 +152,152 @@ pub fn chmod(path: &Path, mode: u32) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(path, fs::Permissions::from_mode(mode))
         .with_context(|| format!("chmod {mode:o} {}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tmpdir::PrivateTempDir;
+
+    /// A Ctx rooted in a throwaway home, so nothing touches the real one.
+    fn scratch() -> (PrivateTempDir, Ctx) {
+        let dir = PrivateTempDir::new("linktest").unwrap();
+        let home = dir.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let mut ctx = Ctx::new(dir.join("repo"), false, true).unwrap();
+        ctx.home = home.clone();
+        ctx.backup_dir = home.join(".dotfiles-backup/test");
+        ctx.state_dir = home.join(".config/dotfiles");
+        (dir, ctx)
+    }
+
+    fn src_file(ctx: &Ctx, name: &str) -> PathBuf {
+        let p = ctx.root.join(name);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(&p, b"managed").unwrap();
+        p
+    }
+
+    #[test]
+    fn links_and_is_idempotent() {
+        let (_d, ctx) = scratch();
+        let src = src_file(&ctx, "a.txt");
+        let dst = ctx.home.join(".a");
+        link_file(&ctx, &src, &dst).unwrap();
+        assert_eq!(fs::read_link(&dst).unwrap(), src);
+
+        // Second call must not disturb it or produce a backup.
+        link_file(&ctx, &src, &dst).unwrap();
+        assert_eq!(fs::read_link(&dst).unwrap(), src);
+        assert!(
+            !ctx.backup_dir.exists(),
+            "a no-op run must not create a backup"
+        );
+    }
+
+    #[test]
+    fn existing_file_is_backed_up_with_its_content_intact() {
+        let (_d, ctx) = scratch();
+        let src = src_file(&ctx, "b.txt");
+        let dst = ctx.home.join(".b");
+        fs::write(&dst, b"the user's original").unwrap();
+
+        link_file(&ctx, &src, &dst).unwrap();
+        assert_eq!(fs::read_link(&dst).unwrap(), src);
+        let backed = ctx.backup_dir.join(".b");
+        assert_eq!(fs::read(backed).unwrap(), b"the user's original");
+    }
+
+    /// Two destinations sharing a basename used to collide in the backup dir,
+    /// and `rename` replaces silently -- so the first file was destroyed.
+    #[test]
+    fn same_basename_in_two_places_does_not_clobber_the_first_backup() {
+        let (_d, ctx) = scratch();
+        let src = src_file(&ctx, "config");
+
+        let one = ctx.home.join(".ssh/config");
+        let two = ctx.home.join(".config/ghostty/config");
+        for (p, content) in [
+            (&one, &b"ssh original"[..]),
+            (&two, &b"ghostty original"[..]),
+        ] {
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, content).unwrap();
+        }
+
+        link_file(&ctx, &src, &one).unwrap();
+        link_file(&ctx, &src, &two).unwrap();
+
+        assert_eq!(
+            fs::read(ctx.backup_dir.join(".ssh/config")).unwrap(),
+            b"ssh original"
+        );
+        assert_eq!(
+            fs::read(ctx.backup_dir.join(".config/ghostty/config")).unwrap(),
+            b"ghostty original"
+        );
+    }
+
+    /// A hand-written skill directory must survive a Skillfile that names it.
+    #[test]
+    fn a_real_directory_is_left_alone() {
+        let (_d, ctx) = scratch();
+        let src = src_file(&ctx, "skill-src");
+        let dst = ctx.home.join(".claude/skills/learned");
+        fs::create_dir_all(&dst).unwrap();
+        fs::write(dst.join("SKILL.md"), b"hand written").unwrap();
+
+        link_file(&ctx, &src, &dst).unwrap();
+
+        assert!(dst.is_dir(), "real directory must not be replaced");
+        assert_eq!(fs::read(dst.join("SKILL.md")).unwrap(), b"hand written");
+        assert!(!ctx.backup_dir.exists(), "and must not be moved to backup");
+    }
+
+    #[test]
+    fn a_broken_symlink_destination_is_replaced() {
+        let (_d, ctx) = scratch();
+        let src = src_file(&ctx, "c.txt");
+        let dst = ctx.home.join(".c");
+        std::os::unix::fs::symlink(ctx.home.join("nowhere"), &dst).unwrap();
+
+        link_file(&ctx, &src, &dst).unwrap();
+        assert_eq!(fs::read_link(&dst).unwrap(), src);
+    }
+
+    #[test]
+    fn refuses_to_overwrite_an_existing_backup() {
+        let (_d, ctx) = scratch();
+        let src = src_file(&ctx, "d.txt");
+        let dst = ctx.home.join(".d");
+        fs::write(&dst, b"first").unwrap();
+        link_file(&ctx, &src, &dst).unwrap();
+
+        // Re-create the destination and force a second backup of the same path.
+        fs::remove_file(&dst).unwrap();
+        fs::write(&dst, b"second").unwrap();
+        let err = link_file(&ctx, &src, &dst).unwrap_err();
+        assert!(
+            err.to_string().contains("existing backup"),
+            "should refuse rather than destroy the first backup: {err}"
+        );
+        assert_eq!(fs::read(ctx.backup_dir.join(".d")).unwrap(), b"first");
+    }
+
+    #[test]
+    fn remove_if_present_clears_a_dangling_symlink() {
+        let (_d, ctx) = scratch();
+        let p = ctx.home.join("dangling");
+        std::os::unix::fs::symlink(ctx.home.join("missing"), &p).unwrap();
+        assert!(
+            !p.exists(),
+            "precondition: exists() is false for a dangling link"
+        );
+
+        remove_if_present(&ctx, &p).unwrap();
+        assert!(
+            fs::symlink_metadata(&p).is_err(),
+            "dangling link should be gone"
+        );
+    }
 }
