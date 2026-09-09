@@ -99,7 +99,7 @@ pub fn run(ctx: &Ctx) -> Result<()> {
     ui::ok(&format!("authenticated as {who}"));
 
     let key = signing::ssh_key_path(ctx);
-    let pub_path = key.with_extension("pub");
+    let pub_path = signing::ssh_pub_path(ctx);
     if !pub_path.exists() {
         bail!("no ssh key at {} — run: dotfiles install", ctx.pretty(&key));
     }

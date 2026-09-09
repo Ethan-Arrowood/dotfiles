@@ -45,6 +45,9 @@ impl Entry {
             Entry::Repo { name, .. } | Entry::Skill { name, .. } => name,
         }
     }
+    pub fn slug(&self) -> String {
+        format!("{}/{}", self.owner(), self.name())
+    }
 }
 
 /// Strip a trailing `#` comment without eating the `#` that separates a repo
@@ -135,7 +138,8 @@ fn ensure_clone(ctx: &Ctx, owner: &str, name: &str) -> Result<Option<PathBuf>> {
     let dest = checkout_path(ctx, owner, name);
     let slug = format!("{owner}/{name}");
 
-    if dest.join(".git").is_dir() {
+    // .git is a file, not a directory, in a worktree or a submodule.
+    if dest.join(".git").exists() {
         ui::skip(&format!("{slug} already cloned at {}", ctx.pretty(&dest)));
         return Ok(Some(dest));
     }
@@ -240,6 +244,10 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
         std::fs::create_dir_all(&dest_dir)?;
     }
 
+    // Two repos declaring the same skill name would each link over the other,
+    // churning the loser into the backup directory on every run.
+    let mut claimed: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
     for entry in &entries {
         let Some(checkout) = ensure_clone(ctx, entry.owner(), entry.name())? else {
             continue;
@@ -251,8 +259,20 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
                     ui::warn(&format!("no SKILL.md found in {}", ctx.pretty(&checkout)));
                 }
                 for skill_dir in found {
-                    let name = skill_dir.file_name().unwrap().to_owned();
-                    link::link_file(ctx, &skill_dir, &dest_dir.join(name))?;
+                    let name = skill_dir
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned();
+                    if let Some(other) = claimed.get(&name) {
+                        ui::warn(&format!(
+                            "skill '{name}' is declared by both {other} and {}; keeping {other}",
+                            entry.slug()
+                        ));
+                        continue;
+                    }
+                    claimed.insert(name.clone(), entry.slug());
+                    link::link_file(ctx, &skill_dir, &dest_dir.join(&name))?;
                 }
             }
             Entry::Skill { skill, .. } => {
@@ -260,7 +280,17 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
                     .into_iter()
                     .find(|p| p.file_name().map(|n| n == skill.as_str()).unwrap_or(false))
                 {
-                    Some(skill_dir) => link::link_file(ctx, &skill_dir, &dest_dir.join(skill))?,
+                    Some(skill_dir) => {
+                        if let Some(other) = claimed.get(skill) {
+                            ui::warn(&format!(
+                                "skill '{skill}' is declared by both {other} and {}; keeping {other}",
+                                entry.slug()
+                            ));
+                            continue;
+                        }
+                        claimed.insert(skill.clone(), entry.slug());
+                        link::link_file(ctx, &skill_dir, &dest_dir.join(skill))?
+                    }
                     None => ui::warn(&format!(
                         "skill '{skill}' not found in {}",
                         ctx.pretty(&checkout)

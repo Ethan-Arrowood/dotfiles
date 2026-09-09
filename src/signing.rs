@@ -59,6 +59,15 @@ pub fn ssh_key_path(ctx: &Ctx) -> PathBuf {
         .unwrap_or_else(|| ctx.home.join(".ssh/id_ed25519"))
 }
 
+/// The public half. Appends `.pub`; `with_extension` would turn `my.key` into
+/// `my.pub` by replacing the existing extension.
+pub fn ssh_pub_path(ctx: &Ctx) -> PathBuf {
+    let key = ssh_key_path(ctx);
+    let mut s = key.into_os_string();
+    s.push(".pub");
+    PathBuf::from(s)
+}
+
 pub fn gpg_key_present(key: &str) -> bool {
     sys::has("gpg")
         && Cmd::new("gpg")
@@ -76,7 +85,7 @@ pub fn gpg_key_present(key: &str) -> bool {
 pub fn resolve(ctx: &Ctx, requested: Mode) -> Mode {
     match requested {
         Mode::Auto => {
-            if ssh_key_path(ctx).with_extension("pub").exists() {
+            if ssh_pub_path(ctx).exists() {
                 Mode::Ssh
             } else if gpg_key_present(GPG_KEY) {
                 Mode::Gpg
@@ -94,7 +103,7 @@ fn signing_include(ctx: &Ctx) -> PathBuf {
 
 /// The public half of the ssh key, as `<type> <base64>` with no comment.
 pub fn ssh_pub_key(ctx: &Ctx) -> Option<String> {
-    let text = std::fs::read_to_string(ssh_key_path(ctx).with_extension("pub")).ok()?;
+    let text = std::fs::read_to_string(ssh_pub_path(ctx)).ok()?;
     let mut parts = text.split_whitespace();
     Some(format!("{} {}", parts.next()?, parts.next()?))
 }
@@ -134,7 +143,7 @@ pub fn configure(ctx: &Ctx, requested: Mode) -> Result<()> {
         }
 
         Mode::Ssh => {
-            let pub_path = ssh_key_path(ctx).with_extension("pub");
+            let pub_path = ssh_pub_path(ctx);
             if !pub_path.exists() {
                 // Writing a config that points at a missing key makes every
                 // commit fail, so refuse instead.
@@ -145,6 +154,18 @@ pub fn configure(ctx: &Ctx, requested: Mode) -> Result<()> {
                 ui::detail(&format!(
                     "generate one with:\n  ssh-keygen -t ed25519 -C \"{EMAIL}\" -f {}",
                     ctx.pretty(&ssh_key_path(ctx))
+                ));
+                link::remove_if_present(ctx, &out)?;
+                return Ok(());
+            }
+            // An empty or malformed .pub passes the exists() check above but
+            // yields no key, and git would then be configured to sign with
+            // nothing -- failing every commit, which is what the exists()
+            // check was there to prevent.
+            if ssh_pub_key(ctx).is_none() {
+                ui::error(&format!(
+                    "{} exists but contains no usable key",
+                    ctx.pretty(&pub_path)
                 ));
                 link::remove_if_present(ctx, &out)?;
                 return Ok(());
@@ -248,6 +269,16 @@ mod tests {
         assert_eq!(resolve(&ctx, Mode::Ssh), Mode::Ssh);
         assert_eq!(resolve(&ctx, Mode::Gpg), Mode::Gpg);
         assert_eq!(resolve(&ctx, Mode::Off), Mode::Off);
+    }
+
+    /// with_extension would turn `my.key` into `my.pub`.
+    #[test]
+    fn pub_path_appends_rather_than_replaces_the_extension() {
+        let ctx = Ctx::new(std::env::temp_dir(), true, true).unwrap();
+        std::env::set_var("DOTFILES_SSH_KEY", "/tmp/my.key");
+        let p = ssh_pub_path(&ctx);
+        std::env::remove_var("DOTFILES_SSH_KEY");
+        assert_eq!(p.to_string_lossy(), "/tmp/my.key.pub");
     }
 
     #[test]

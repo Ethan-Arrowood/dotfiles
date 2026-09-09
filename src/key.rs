@@ -62,7 +62,7 @@ pub fn status(ctx: &Ctx) -> Result<()> {
         ui::ok(&format!("ssh key {}", ctx.pretty(&key)));
         if let Ok(c) = Cmd::new("ssh-keygen")
             .arg("-lf")
-            .arg(key.with_extension("pub").to_string_lossy())
+            .arg(signing::ssh_pub_path(ctx).to_string_lossy())
             .capture()
         {
             ui::detail(c.stdout.trim());

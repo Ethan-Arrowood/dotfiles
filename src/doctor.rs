@@ -150,7 +150,9 @@ pub fn run(ctx: &Ctx) -> Result<bool> {
             if days < 0 {
                 r.error(&format!("signing key EXPIRED {} days ago", -days));
             } else if days < 60 {
-                ui::warn(&format!("signing key expires in {days} days"));
+                // r.warn, not ui::warn: this has to affect the exit code, or
+                // `doctor` reports success on a key that is about to expire.
+                r.warn(&format!("signing key expires in {days} days"));
             } else {
                 r.ok(&format!("signing key valid for {days} more days"));
             }
