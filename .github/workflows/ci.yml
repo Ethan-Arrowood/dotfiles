@@ -44,8 +44,28 @@ jobs:
       - name: second run must be idempotent
         run: |
           export DOTFILES_ROOT="$PWD"
-          ./target/release/dotfiles install --profile core --signing off -y | tee /tmp/second.log
+          # Capture BOTH streams: the "backed up existing" marker goes to
+          # stderr, so grepping stdout alone could not detect a non-idempotent
+          # run at all.
+          ./target/release/dotfiles install --profile core --signing off -y >/tmp/second.log 2>&1
+          cat /tmp/second.log
           grep -q "already linked" /tmp/second.log
+          # Asserting the absence of change is the part that actually tests it.
+          if grep -qE "backed up existing|wrote .*init\.sh.*[0-9]" /tmp/second.log; then
+            echo "second run modified state; not idempotent" >&2
+            grep -E "backed up existing" /tmp/second.log >&2 || true
+            exit 1
+          fi
+      - name: the sandbox guard must block machine-global changes
+        run: |
+          export DOTFILES_ROOT="$PWD"
+          mkdir -p /tmp/fakehome
+          # A sandboxed $HOME must stop package installs; the guard is never
+          # exercised by the runs above, which use the real $HOME as root.
+          HOME=/tmp/fakehome ./target/release/dotfiles install --profile core -y >/tmp/guard.log 2>&1
+          cat /tmp/guard.log
+          grep -q "skipping machine-global changes" /tmp/guard.log
+
       - name: ssh signing must produce a verifiable commit
         run: |
           export DOTFILES_ROOT="$PWD"
