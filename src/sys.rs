@@ -197,6 +197,11 @@ unsafe fn libc_geteuid() -> u32 {
 
 /// Best-effort system package install, used only to get zsh and git present.
 pub fn sys_install(ctx: &Ctx, pkgs: &[&str]) -> Result<bool> {
+    // Guarded here rather than at the call site: this escalates to root and
+    // mutates the machine, so it must not depend on a caller remembering.
+    if !ctx.dry_run && !allow_global_changes() {
+        return Ok(false);
+    }
     let list = pkgs.join(" ");
     if has("apt-get") {
         as_root(ctx, "apt-get update", "apt-get", &["update", "-qq"])?;
@@ -228,54 +233,95 @@ pub fn sys_install(ctx: &Ctx, pkgs: &[&str]) -> Result<bool> {
     }
 }
 
-/// True when $HOME is not this user's real home directory.
+/// Whether machine-global changes are allowed.
 ///
-/// That means we are running under a test harness with a sandboxed HOME.
-/// File operations follow $HOME and are safely contained, but `brew install`
-/// and `defaults write` are machine-global and would escape the sandbox --
-/// so those are skipped unless explicitly allowed.
-pub fn home_is_sandboxed() -> bool {
+/// $HOME differing from the account's real home means a test harness with a
+/// sandboxed $HOME. File operations follow $HOME and stay contained; package
+/// installs, `defaults write`, `chsh` and the toolchain installers do not, and
+/// would escape the sandbox onto the real machine.
+///
+/// Fails CLOSED. An earlier version returned "not sandboxed" from every error
+/// path, so a machine where the home lookup failed -- a directory-services
+/// bound Mac, a container without `id` -- silently ran with no guard at all.
+/// For a safety check, "I could not tell" must mean "do not".
+/// DOTFILES_ALLOW_SANDBOXED_HOME=1 is the escape hatch.
+pub fn home_is_sandboxed() -> Sandbox {
     if std::env::var_os("DOTFILES_ALLOW_SANDBOXED_HOME").is_some() {
-        return false;
+        return Sandbox::No;
     }
     let Some(env_home) = dirs::home_dir() else {
-        return false;
+        return Sandbox::Unknown("$HOME is not set");
     };
     let Some(real_home) = real_home_dir() else {
-        return false;
+        return Sandbox::Unknown("could not read this account's home directory");
     };
-    env_home != real_home
+    // Compare resolved paths: a symlinked or trailing-slash $HOME is the same
+    // home, and should not read as a sandbox.
+    let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    if canon(&env_home) == canon(&real_home) {
+        Sandbox::No
+    } else {
+        Sandbox::Yes
+    }
 }
 
-/// The home directory from the password database, ignoring $HOME.
+pub enum Sandbox {
+    /// $HOME is the account's real home; global changes are fine.
+    No,
+    /// $HOME is somewhere else; this is a test run.
+    Yes,
+    /// Could not determine. Treated as sandboxed.
+    Unknown(&'static str),
+}
+
+/// The home directory from the account database, ignoring $HOME.
 fn real_home_dir() -> Option<std::path::PathBuf> {
-    let out = Command::new("getent")
-        .args(["passwd", &current_username()?])
-        .output()
-        .ok();
-    if let Some(o) = out {
+    let user = current_username()?;
+
+    if let Some(o) = Command::new("getent").args(["passwd", &user]).output().ok() {
         if o.status.success() {
             let line = String::from_utf8_lossy(&o.stdout).into_owned();
             if let Some(dir) = line.split(':').nth(5) {
-                return Some(std::path::PathBuf::from(dir));
+                if !dir.is_empty() {
+                    return Some(std::path::PathBuf::from(dir));
+                }
             }
         }
     }
-    // macOS has no getent; dscl is the equivalent.
-    let o = Command::new("dscl")
-        .args([
-            ".",
-            "-read",
-            &format!("/Users/{}", current_username()?),
-            "NFSHomeDirectory",
-        ])
-        .output()
-        .ok()?;
-    if !o.status.success() {
-        return None;
+
+    // macOS has no getent. Query /Search rather than the local node `.`, so a
+    // machine bound to AD/LDAP -- where the user record is not local -- still
+    // resolves instead of silently disabling the guard.
+    for node in ["/Search", "."] {
+        let Ok(o) = Command::new("dscl")
+            .args([node, "-read", &format!("/Users/{user}"), "NFSHomeDirectory"])
+            .output()
+        else {
+            continue;
+        };
+        if !o.status.success() {
+            continue;
+        }
+        let text = String::from_utf8_lossy(&o.stdout);
+        // Either "NFSHomeDirectory: /Users/x" or the key on its own line with
+        // the value on the next -- the latter when the value contains a space.
+        let value = text
+            .strip_prefix("NFSHomeDirectory:")
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                text.lines()
+                    .nth(1)
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                    .map(str::to_string)
+            });
+        if let Some(v) = value {
+            return Some(std::path::PathBuf::from(v));
+        }
     }
-    let text = String::from_utf8_lossy(&o.stdout);
-    text.split_whitespace().nth(1).map(std::path::PathBuf::from)
+    None
 }
 
 fn current_username() -> Option<String> {
@@ -290,16 +336,58 @@ fn current_username() -> Option<String> {
 
 /// Guard for anything that changes machine-global state.
 ///
-/// Returns false (and explains) when running with a sandboxed HOME, so a test
-/// run cannot install packages or rewrite system preferences for real.
+/// Reports at most once per run; it is consulted from a dozen call sites and
+/// repeating the same line a dozen times is noise.
 pub fn allow_global_changes() -> bool {
-    if home_is_sandboxed() {
-        crate::ui::skip(
-            "sandboxed $HOME detected: skipping machine-global changes              (set DOTFILES_ALLOW_SANDBOXED_HOME=1 to override)",
-        );
-        return false;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static REPORTED: AtomicBool = AtomicBool::new(false);
+
+    let (blocked, why) = match home_is_sandboxed() {
+        Sandbox::No => return true,
+        Sandbox::Yes => (true, "sandboxed $HOME detected".to_string()),
+        Sandbox::Unknown(reason) => (true, format!("cannot verify $HOME ({reason})")),
+    };
+    if blocked && !REPORTED.swap(true, Ordering::Relaxed) {
+        crate::ui::skip(&format!(
+            "{why}: skipping machine-global changes \
+             (set DOTFILES_ALLOW_SANDBOXED_HOME=1 to override)"
+        ));
     }
-    true
+    false
+}
+
+/// The login shell recorded in the account database, which is what chsh
+/// changes. $SHELL only reflects the value at login time.
+pub fn login_shell_of_record() -> Option<String> {
+    let user = current_username()?;
+    if let Ok(o) = Command::new("getent").args(["passwd", &user]).output() {
+        if o.status.success() {
+            let line = String::from_utf8_lossy(&o.stdout).into_owned();
+            if let Some(sh) = line.trim_end().rsplit(':').next() {
+                if !sh.is_empty() {
+                    return Some(sh.to_string());
+                }
+            }
+        }
+    }
+    for node in ["/Search", "."] {
+        let Ok(o) = Command::new("dscl")
+            .args([node, "-read", &format!("/Users/{user}"), "UserShell"])
+            .output()
+        else {
+            continue;
+        };
+        if !o.status.success() {
+            continue;
+        }
+        let text = String::from_utf8_lossy(&o.stdout);
+        if let Some(v) = text.strip_prefix("UserShell:").map(str::trim) {
+            if !v.is_empty() {
+                return Some(v.to_string());
+            }
+        }
+    }
+    None
 }
 
 pub fn hostname_short() -> String {
@@ -317,4 +405,54 @@ pub fn hostname_short() -> String {
         .filter(|c| c.ok)
         .map(|c| c.trimmed().to_string())
         .unwrap_or_else(|| "unknown".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn real_home_resolves_on_this_machine() {
+        // If this fails the guard would previously have silently switched off;
+        // now it fails closed instead, but either way it is worth knowing.
+        assert!(
+            real_home_dir().is_some(),
+            "could not read this account's home directory"
+        );
+    }
+
+    #[test]
+    fn unknown_is_treated_as_sandboxed() {
+        // The direction that matters: "cannot tell" must block, not allow.
+        let unknown = Sandbox::Unknown("test");
+        assert!(
+            matches!(unknown, Sandbox::Unknown(_)),
+            "Unknown must exist as a distinct state"
+        );
+        // And the override must still win.
+        std::env::set_var("DOTFILES_ALLOW_SANDBOXED_HOME", "1");
+        assert!(matches!(home_is_sandboxed(), Sandbox::No));
+        std::env::remove_var("DOTFILES_ALLOW_SANDBOXED_HOME");
+    }
+
+    #[test]
+    fn a_trailing_slash_home_is_not_a_sandbox() {
+        let Some(real) = real_home_dir() else { return };
+        let orig = std::env::var_os("HOME");
+        std::env::set_var("HOME", format!("{}/", real.display()));
+        let verdict = matches!(home_is_sandboxed(), Sandbox::No);
+        match orig {
+            Some(v) => std::env::set_var("HOME", v),
+            None => std::env::remove_var("HOME"),
+        }
+        assert!(
+            verdict,
+            "a trailing slash on $HOME must not read as sandboxed"
+        );
+    }
+
+    #[test]
+    fn login_shell_of_record_is_readable() {
+        assert!(login_shell_of_record().is_some_and(|s| s.starts_with('/')));
+    }
 }

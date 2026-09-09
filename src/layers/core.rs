@@ -185,6 +185,11 @@ fn ssh_agent(ctx: &Ctx) -> Result<()> {
     if !key.exists() || ctx.dry_run {
         return Ok(());
     }
+    // Looks $HOME-scoped but is not: the agent is per-session and
+    // --apple-use-keychain writes the real login Keychain.
+    if !sys::allow_global_changes() {
+        return Ok(());
+    }
     let fingerprint = Cmd::new("ssh-keygen")
         .arg("-lf")
         .arg(key.to_string_lossy())
@@ -220,7 +225,17 @@ fn login_shell(ctx: &Ctx) -> Result<()> {
     let Some(zsh) = sys::which("zsh") else {
         return Ok(());
     };
-    let current = std::env::var("SHELL").unwrap_or_default();
+    // chsh rewrites the real account's login shell in the password database,
+    // which no sandboxed $HOME contains. -y suppresses the confirm, so without
+    // this a test run would change the user's shell for real.
+    if !ctx.dry_run && !sys::allow_global_changes() {
+        return Ok(());
+    }
+    // Read the account database, not $SHELL: $SHELL is set at login, so after a
+    // successful chsh this session still reports the old value and would
+    // re-prompt on every run -- and macOS chsh asks for a password.
+    let current =
+        sys::login_shell_of_record().unwrap_or_else(|| std::env::var("SHELL").unwrap_or_default());
     if current == zsh.to_string_lossy() {
         ui::skip("login shell is already zsh");
         return Ok(());
