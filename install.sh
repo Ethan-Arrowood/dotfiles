@@ -12,6 +12,11 @@
 # cannot assume anything is already installed.
 set -eu
 
+# Everything lives in main(), invoked on the last line. Piped into a shell, a
+# connection that drops mid-transfer would otherwise execute however much
+# arrived; this way an incomplete file never reaches the call.
+main() {
+
 REPO="${DOTFILES_REPO:-Ethan-Arrowood/dotfiles}"
 REPO_DIR="${DOTFILES_ROOT:-$HOME/dev/dotfiles}"
 BIN_DIR="${DOTFILES_BIN_DIR:-$HOME/.local/bin}"
@@ -19,6 +24,10 @@ VERSION="${DOTFILES_VERSION:-latest}"
 
 say() { printf '==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+for tool in curl tar; do
+  command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
+done
 
 if ! command -v git >/dev/null 2>&1; then
   if [ "$(uname -s)" = "Darwin" ]; then
@@ -42,7 +51,13 @@ fi
 # --- binary ---
 case "$(uname -s)" in
   Darwin) os=apple-darwin ;;
-  Linux)  os=unknown-linux-gnu ;;
+  Linux)
+    os=unknown-linux-gnu
+    # The published builds are glibc-linked; on musl (Alpine) they will not run.
+    if [ -f /etc/alpine-release ] || ! ldd --version 2>&1 | grep -qi glibc; then
+      say "warning: this looks like a musl system; the prebuilt binary is glibc-linked"
+    fi
+    ;;
   *) die "unsupported OS: $(uname -s)" ;;
 esac
 case "$(uname -m)" in
@@ -63,15 +78,16 @@ mkdir -p "$BIN_DIR"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
-if curl -fsSL "$url" -o "$tmp/dotfiles.tar.gz" 2>/dev/null; then
+if curl -fsSL "$url" -o "$tmp/dotfiles.tar.gz" 2>"$tmp/curl.err"; then
   tar -xzf "$tmp/dotfiles.tar.gz" -C "$tmp"
   mv "$tmp/dotfiles" "$BIN_DIR/dotfiles"
   chmod +x "$BIN_DIR/dotfiles"
   say "installed $BIN_DIR/dotfiles"
 else
-  # No release yet, or an unbuilt target. Fall back to building from source
-  # when a toolchain happens to be present.
-  say "no prebuilt binary at $url"
+  # Could be a missing release, but equally a DNS failure, a proxy, or a rate
+  # limit -- so show what curl actually said rather than guessing.
+  say "could not download $url"
+  [ -s "$tmp/curl.err" ] && sed 's/^/    /' "$tmp/curl.err"
   if command -v cargo >/dev/null 2>&1; then
     say "building from source instead"
     ( cd "$REPO_DIR" && cargo build --release )
@@ -83,4 +99,12 @@ fi
 
 PATH="$BIN_DIR:$PATH"
 export PATH DOTFILES_ROOT="$REPO_DIR"
+
+# exec replaces the process, so the EXIT trap never runs. Clean up first.
+rm -rf "$tmp"
+trap - EXIT INT TERM
+
 exec "$BIN_DIR/dotfiles" install "$@"
+}
+
+main "$@"
