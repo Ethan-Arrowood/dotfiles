@@ -278,7 +278,7 @@ pub enum Sandbox {
 fn real_home_dir() -> Option<std::path::PathBuf> {
     let user = current_username()?;
 
-    if let Some(o) = Command::new("getent").args(["passwd", &user]).output().ok() {
+    if let Ok(o) = Command::new("getent").args(["passwd", &user]).output() {
         if o.status.success() {
             let line = String::from_utf8_lossy(&o.stdout).into_owned();
             if let Some(dir) = line.split(':').nth(5) {
