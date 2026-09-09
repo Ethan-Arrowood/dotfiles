@@ -17,6 +17,13 @@ use anyhow::Result;
 use std::fmt::Write as _;
 use std::path::Path;
 
+/// Single-quote a value for shell. A repo path containing `"`, `$` or a
+/// backtick would otherwise break or inject into the generated init.sh -- and
+/// .zshrc sources that unconditionally, so every new shell would error.
+fn sh_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
 /// Sorted list of files in `<layer>/<sub>` with the given extension.
 fn fragments(layer_dir: &Path, sub: &str, ext: &str) -> Vec<String> {
     let dir = layer_dir.join(sub);
@@ -44,7 +51,11 @@ pub fn render(ctx: &Ctx, profile: &str, layers: &[Layer]) -> String {
         "# Machine-local overrides belong in ~/.zshrc.local (sourced last)."
     );
     let _ = writeln!(out);
-    let _ = writeln!(out, "export DOTFILES_ROOT=\"{}\"", ctx.root.display());
+    let _ = writeln!(
+        out,
+        "export DOTFILES_ROOT={}",
+        sh_quote(&ctx.root.to_string_lossy())
+    );
     let _ = writeln!(out, "export DOTFILES_LAYERS=\"{}\"", names.join(" "));
     let _ = writeln!(out, "export DOTFILES_PROFILE=\"{profile}\"");
 
@@ -127,6 +138,14 @@ mod tests {
         assert!(out.find(zsh_line).unwrap() > guard);
 
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn a_repo_path_with_shell_metacharacters_is_quoted() {
+        assert_eq!(sh_quote("/plain/path"), "'/plain/path'");
+        assert_eq!(sh_quote(r#"/has "quote"/x"#), r#"'/has "quote"/x'"#);
+        assert_eq!(sh_quote("/has $VAR/x"), "'/has $VAR/x'");
+        assert_eq!(sh_quote("/it's/here"), r"'/it'\''s/here'");
     }
 
     #[test]

@@ -62,7 +62,10 @@ impl Ctx {
         if let Some(explicit) = std::env::var_os("DOTFILES_ROOT") {
             let p = PathBuf::from(explicit);
             if p.join("layers").is_dir() {
-                return Ok(p);
+                // Absolute, always: symlink targets are stored verbatim, so a
+                // relative root yields links that resolve against $HOME and
+                // dangle -- after the real dotfiles have been displaced.
+                return Ok(std::fs::canonicalize(&p).unwrap_or(p));
             }
             bail!("DOTFILES_ROOT={} has no layers/ directory", p.display());
         }
@@ -81,12 +84,21 @@ impl Ctx {
         if let Ok(cwd) = std::env::current_dir() {
             candidates.push(cwd);
         }
+        // Where install.sh clones it. The binary lives in ~/.local/bin, which
+        // is nowhere near the repo, so without this `dotfiles` only works from
+        // a shell started after a successful install (which exports
+        // DOTFILES_ROOT) -- and bash users never get that.
+        if let Some(home) = dirs::home_dir() {
+            candidates.push(home.join("dev/dotfiles"));
+            candidates.push(home.join("dev/ethan-arrowood/dotfiles"));
+        }
+
         for c in candidates {
             if c.join("layers").is_dir() {
-                return Ok(c);
+                return Ok(std::fs::canonicalize(&c).unwrap_or(c));
             }
         }
-        bail!("cannot find the dotfiles repo; set DOTFILES_ROOT or run from inside it")
+        bail!("cannot find the dotfiles repo. Set DOTFILES_ROOT, or run from inside the checkout.")
     }
 
     /// `~`-shortened path for display.
