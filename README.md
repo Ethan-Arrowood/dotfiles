@@ -11,8 +11,10 @@ curl -fsSL https://raw.githubusercontent.com/Ethan-Arrowood/dotfiles/main/instal
 dotfiles install --profile mac-dev
 ```
 
-Always safe to run twice. Add `--dry-run` to see the plan without touching
-anything.
+Always safe to run twice: a second run re-links nothing, writes no `defaults`
+that already match, and does not touch installed toolchains — CI asserts this.
+Add `--dry-run` to see the plan without touching anything, and `--update` to
+refresh toolchains, which is otherwise never done implicitly.
 
 ## How it is built
 
@@ -74,11 +76,11 @@ dotfiles install --profile core --with mac-apps                # build your own
 
 | Layer | Platform | Contents |
 | --- | --- | --- |
-| `core` | any | zsh, git, commit signing, aliases, functions |
+| `core` | any | zsh, git, ssh, commit signing, aliases, functions |
 | `mac-base` | macOS | Xcode CLT, Homebrew, CLI tools, macOS defaults, computer name |
 | `mac-langs` | macOS | Node (fnm), Rust (rustup), Python (uv), C/C++, Java |
-| `mac-apps` | macOS | Chrome, VS Code, Claude, Ghostty, Rectangle |
-| `mac-apps-extra` | macOS | Slack, Zoom, Spotify, Discord, Podman, Postman |
+| `mac-apps` | macOS | Chrome, VS Code, Claude, Ghostty, Dashlane CLI |
+| `mac-apps-extra` | macOS | Slack, Zoom, Spotify, Discord, Podman, DaisyDisk |
 | `work-harper` | any | Harper dev-server aliases (opt-in; no identity override) |
 
 `core` is the only layer that has to work everywhere, so it assumes nothing:
@@ -90,7 +92,7 @@ a sane built-in.
 
 ```bash
 dotfiles install [--profile NAME] [--with LAYER] [--without LAYER] [--dry-run] [--yes]
-                 [--signing auto|ssh|gpg|off]
+                 [--signing auto|ssh|gpg|off] [--update]
 dotfiles list      # profiles and layers
 dotfiles status    # what this machine has installed, and where links point
 dotfiles link      # re-link $HOME files only, no packages
@@ -101,11 +103,15 @@ dotfiles key       # move the signing key between machines (export/import/status
 
 ### Safety
 
-Anything machine-global — `brew install`, `defaults write`, toolchain
-installers — is skipped when `$HOME` is not your real home directory, because
-that means a test harness with a sandboxed `$HOME`. File operations follow
-`$HOME` and stay contained; these do not, and would escape the sandbox.
-`DOTFILES_ALLOW_SANDBOXED_HOME=1` overrides it.
+Anything machine-global — `brew install`, `defaults write`, `chsh`,
+`ssh-add --apple-use-keychain`, the toolchain installers — is skipped when
+`$HOME` is not your real home directory, because that means a test harness with
+a sandboxed `$HOME`. File operations follow `$HOME` and stay contained; these do
+not, and would escape the sandbox.
+
+The guard **fails closed**: if it cannot determine your real home, it blocks
+rather than allows. `DOTFILES_ALLOW_SANDBOXED_HOME=1` is the escape hatch, and
+CI asserts the guard actually fires.
 
 ## How it works
 
@@ -146,11 +152,12 @@ Files in `$HOME` are symlinks back into the repo, so `vim ~/.zshrc` and
 `git diff` here show the same edit. Anything already present is moved to
 `~/.dotfiles-backup/<timestamp>/` first.
 
-One consequence to watch: an installer that appends to `~/.zshrc` (uv and
-rustup both do) follows the symlink and writes **into this repo**. That shows
-up as an unexpected `git diff` here rather than as untracked local drift, which
-is the good version of the problem — but review it rather than committing it
-blind.
+One consequence to watch: an installer that appends to `~/.zshrc` or
+`~/.zshenv` follows the symlink and writes **into this repo**. rustup and uv
+are both invoked with the flags that stop them doing so (`--no-modify-path`,
+`INSTALLER_NO_MODIFY_PATH=1`), but a tool you run by hand can still do it. It
+shows up as an unexpected `git diff` here rather than as invisible local drift
+— review it rather than committing it blind.
 
 ## Adding a layer
 
@@ -376,9 +383,16 @@ Fix it by running the core layer inside the container:
 // .devcontainer/devcontainer.json
 {
   "postCreateCommand": "curl -fsSL https://raw.githubusercontent.com/Ethan-Arrowood/dotfiles/main/install.sh | sh -s -- --profile core -y",
-  "mounts": ["source=${localEnv:HOME}/.ssh/id_ed25519.pub,target=/tmp/id_ed25519.pub,type=bind,readonly"]
+  "mounts": ["source=${localEnv:HOME}/.ssh/id_ed25519.pub,target=/tmp/id_ed25519.pub,type=bind,readonly"],
+  "remoteEnv": { "DOTFILES_SSH_KEY": "/tmp/id_ed25519" }
 }
 ```
+
+`DOTFILES_SSH_KEY` is the load-bearing line. Without it the installer looks for
+`~/.ssh/id_ed25519.pub`, which does not exist in the container, and falls
+through to unsigned — the exact silent failure described above. It points at
+the *private* key path; the `.pub` suffix is appended, and only the public half
+needs to be mounted.
 
 The core layer detects the container, leaves the login shell alone, skips key
 generation, and configures signing against the forwarded agent. Only the
