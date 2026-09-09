@@ -70,6 +70,9 @@ struct InstallArgs {
     /// Assume yes for prompts
     #[arg(short = 'y', long)]
     yes: bool,
+    /// Refresh already-installed toolchains (rustup update, uv self update)
+    #[arg(long)]
+    update: bool,
     /// Commit signing mode [default: from $DOTFILES_SIGNING, else auto]
     #[arg(long, value_name = "auto|ssh|gpg|off")]
     signing: Option<String>,
@@ -114,7 +117,7 @@ fn real_main() -> Result<()> {
 
     match cli.command {
         Command::Install(args) => {
-            let ctx = Ctx::new(root, args.dry_run, args.yes)?;
+            let ctx = Ctx::with_update(root, args.dry_run, args.yes, args.update)?;
             install(&ctx, args)
         }
         Command::List => {

@@ -10,6 +10,9 @@ pub struct Ctx {
     pub home: PathBuf,
     pub dry_run: bool,
     pub assume_yes: bool,
+    /// Refresh already-installed toolchains (rustup update, uv self update).
+    /// Off by default so a plain re-run stays a no-op.
+    pub update: bool,
     /// Where displaced files are moved. Created lazily on first use.
     pub backup_dir: PathBuf,
     /// Generated machine-local state: ~/.config/dotfiles
@@ -18,6 +21,15 @@ pub struct Ctx {
 
 impl Ctx {
     pub fn new(root: PathBuf, dry_run: bool, assume_yes: bool) -> Result<Self> {
+        Self::with_update(root, dry_run, assume_yes, false)
+    }
+
+    pub fn with_update(
+        root: PathBuf,
+        dry_run: bool,
+        assume_yes: bool,
+        update: bool,
+    ) -> Result<Self> {
         let home = dirs::home_dir().context("cannot determine home directory")?;
         let stamp = std::process::Command::new("date")
             .args(["+%Y%m%d-%H%M%S"])
@@ -39,6 +51,7 @@ impl Ctx {
             root,
             dry_run,
             assume_yes,
+            update,
         })
     }
 

@@ -70,76 +70,135 @@ fn xcode_clt(ctx: &Ctx) -> Result<()> {
 
 /// Only the settings worth losing an argument over. Anything cosmetic is left
 /// to System Settings, where it is easier to change your mind.
+///
+/// Reads each key before writing it: writing unconditionally meant every run
+/// ended in `killall Finder Dock SystemUIServer`, restarting the Dock and
+/// closing open Finder windows even when nothing had changed.
 fn macos_defaults(ctx: &Ctx) -> Result<()> {
     if !ctx.dry_run && !sys::allow_global_changes() {
         return Ok(());
     }
     let home_downloads = ctx.home.join("Downloads");
-    let settings: Vec<Vec<String>> = vec![
-        vec![
+    let mut settings: Vec<(&str, &str, &str, String)> = vec![
+        (
             "NSGlobalDomain",
             "ApplePressAndHoldEnabled",
             "-bool",
-            "false",
-        ],
-        vec!["NSGlobalDomain", "KeyRepeat", "-int", "2"],
-        vec!["NSGlobalDomain", "InitialKeyRepeat", "-int", "15"],
-        vec!["NSGlobalDomain", "AppleShowAllExtensions", "-bool", "true"],
-        vec![
+            "false".into(),
+        ),
+        ("NSGlobalDomain", "KeyRepeat", "-int", "2".into()),
+        ("NSGlobalDomain", "InitialKeyRepeat", "-int", "15".into()),
+        (
+            "NSGlobalDomain",
+            "AppleShowAllExtensions",
+            "-bool",
+            "true".into(),
+        ),
+        (
             "NSGlobalDomain",
             "NSDocumentSaveNewDocumentsToCloud",
             "-bool",
-            "false",
-        ],
-        vec!["com.apple.finder", "AppleShowAllFiles", "-bool", "true"],
-        vec!["com.apple.finder", "ShowPathbar", "-bool", "true"],
-        vec!["com.apple.finder", "ShowStatusBar", "-bool", "true"],
-        vec![
+            "false".into(),
+        ),
+        (
+            "com.apple.finder",
+            "AppleShowAllFiles",
+            "-bool",
+            "true".into(),
+        ),
+        ("com.apple.finder", "ShowPathbar", "-bool", "true".into()),
+        ("com.apple.finder", "ShowStatusBar", "-bool", "true".into()),
+        (
             "com.apple.finder",
             "FXPreferredViewStyle",
             "-string",
-            "Nlsv",
-        ],
-        vec!["com.apple.finder", "_FXSortFoldersFirst", "-bool", "true"],
-        vec![
+            "Nlsv".into(),
+        ),
+        (
+            "com.apple.finder",
+            "_FXSortFoldersFirst",
+            "-bool",
+            "true".into(),
+        ),
+        (
             "com.apple.finder",
             "FXDefaultSearchScope",
             "-string",
-            "SCcf",
-        ],
-        vec![
+            "SCcf".into(),
+        ),
+        (
             "com.apple.desktopservices",
             "DSDontWriteNetworkStores",
             "-bool",
-            "true",
-        ],
-        vec!["com.apple.screencapture", "disable-shadow", "-bool", "true"],
-        vec!["com.apple.dock", "show-recents", "-bool", "false"],
-        vec!["com.apple.dock", "autohide-delay", "-float", "0"],
-    ]
-    .into_iter()
-    .map(|v| v.into_iter().map(String::from).collect())
-    .collect();
+            "true".into(),
+        ),
+        (
+            "com.apple.screencapture",
+            "disable-shadow",
+            "-bool",
+            "true".into(),
+        ),
+        ("com.apple.dock", "show-recents", "-bool", "false".into()),
+        ("com.apple.dock", "autohide-delay", "-float", "0".into()),
+    ];
+    settings.push((
+        "com.apple.screencapture",
+        "location",
+        "-string",
+        home_downloads.to_string_lossy().into_owned(),
+    ));
 
-    for s in &settings {
-        let desc = format!("defaults write {}", s.join(" "));
+    let mut changed = Vec::new();
+    for (domain, key, kind, value) in &settings {
+        if current_default(domain, key).as_deref() == Some(normalized(kind, value).as_str()) {
+            continue;
+        }
+        changed.push(format!("{domain} {key}"));
         Cmd::new("defaults")
-            .arg("write")
-            .args(s.iter().cloned())
-            .run(ctx, &desc)?;
+            .args(["write", domain, key, kind])
+            .arg(value.clone())
+            .run(ctx, &format!("defaults write {domain} {key} {value}"))?;
     }
-    // Path-valued, so built separately.
-    Cmd::new("defaults")
-        .args(["write", "com.apple.screencapture", "location", "-string"])
-        .arg(home_downloads.to_string_lossy())
-        .run(ctx, "defaults write com.apple.screencapture location")?;
 
+    if changed.is_empty() {
+        ui::skip("macOS defaults already set");
+        return Ok(());
+    }
     if !ctx.dry_run {
+        // Only restart the UI when something actually moved.
         for app in ["Finder", "Dock", "SystemUIServer"] {
             let _ = Cmd::new("killall").arg(app).capture();
         }
+        ui::ok(&format!(
+            "{} default(s) changed; restarted Finder/Dock",
+            changed.len()
+        ));
     }
     Ok(())
+}
+
+/// `defaults read` for one key, or None when unset.
+fn current_default(domain: &str, key: &str) -> Option<String> {
+    let out = Cmd::new("defaults")
+        .args(["read", domain, key])
+        .capture()
+        .ok()?;
+    if !out.ok {
+        return None;
+    }
+    Some(out.trimmed().to_string())
+}
+
+/// `defaults read` prints booleans as 0/1 and floats without a trailing
+/// fraction, so compare in that form rather than against the literal we pass.
+fn normalized(kind: &str, value: &str) -> String {
+    match kind {
+        "-bool" => match value {
+            "true" | "YES" | "1" => "1".into(),
+            _ => "0".into(),
+        },
+        _ => value.to_string(),
+    }
 }
 
 /// Wire up git-delta only when it is actually installed.

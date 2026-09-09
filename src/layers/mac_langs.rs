@@ -55,7 +55,10 @@ fn rust(ctx: &Ctx) -> Result<()> {
         return Ok(());
     }
     if sys::has("rustup") {
-        ui::skip("rustup already installed");
+        if !ctx.update {
+            ui::skip("rustup already installed (pass --update to refresh)");
+            return Ok(());
+        }
         if !Cmd::new("rustup")
             .args(["update", "stable"])
             .run(ctx, "rustup update stable")?
