@@ -36,9 +36,15 @@ fn xcode_clt(ctx: &Ctx) -> Result<()> {
         return Ok(());
     }
 
-    // The placeholder file makes softwareupdate list the CLT package.
+    // Apple looks for this exact path, so it cannot be moved somewhere private.
+    // create_new rather than create: the path is world-writable and
+    // File::create would follow a planted symlink.
     let sentinel = "/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress";
-    let _ = std::fs::File::create(sentinel);
+    let sentinel_created = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(sentinel)
+        .is_ok();
 
     let listing = Cmd::new("softwareupdate").arg("-l").capture()?;
     let label = listing
@@ -64,7 +70,9 @@ fn xcode_clt(ctx: &Ctx) -> Result<()> {
             ui::warn("finish the GUI install, then re-run `dotfiles install`");
         }
     }
-    let _ = std::fs::remove_file(sentinel);
+    if sentinel_created {
+        let _ = std::fs::remove_file(sentinel);
+    }
     Ok(())
 }
 
@@ -262,6 +270,12 @@ fn computer_name(ctx: &Ctx) -> Result<()> {
         .map(|c| if c == ' ' { '-' } else { c })
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
         .collect();
+    if safe.is_empty() {
+        ui::warn(&format!(
+            "'{name}' has no characters valid in a hostname; leaving the name unchanged"
+        ));
+        return Ok(());
+    }
 
     sys::as_root(
         ctx,

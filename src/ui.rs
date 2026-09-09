@@ -40,7 +40,17 @@ pub fn dry(msg: &str) {
     );
 }
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+static WARNINGS: AtomicUsize = AtomicUsize::new(0);
+
+/// How many warnings this run produced, so `install` can say so at the end
+/// rather than printing fifteen yellow lines and exiting 0.
+pub fn warning_count() -> usize {
+    WARNINGS.load(Ordering::Relaxed)
+}
+
 pub fn warn(msg: &str) {
+    WARNINGS.fetch_add(1, Ordering::Relaxed);
     eprintln!(
         "{} {}",
         "  warn".if_supports_color(Stdout, |t| t.yellow()),

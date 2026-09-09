@@ -12,10 +12,10 @@ struct Report {
 }
 
 impl Report {
-    fn ok(&mut self, msg: &str) {
+    fn ok(&self, msg: &str) {
         ui::ok(msg);
     }
-    fn skip(&mut self, msg: &str) {
+    fn skip(&self, msg: &str) {
         ui::skip(msg);
     }
     fn warn(&mut self, msg: &str) {

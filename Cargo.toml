@@ -15,8 +15,6 @@ anyhow = "1"
 clap = { version = "4", features = ["derive", "wrap_help"] }
 dirs = "5"
 owo-colors = { version = "4", features = ["supports-colors"] }
-serde = { version = "1", features = ["derive"] }
-toml = "0.8"
 
 [profile.release]
 strip = true

@@ -3,7 +3,7 @@
 use crate::ctx::Ctx;
 use crate::layer::Layer;
 use crate::sys::{self, Cmd};
-use crate::{brew, link, ui};
+use crate::{brew, ui};
 use anyhow::Result;
 
 pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
@@ -14,7 +14,6 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
     node(ctx)?;
     rust(ctx)?;
     python(ctx)?;
-    link::link_home_dir(ctx, &dir)?;
     Ok(())
 }
 

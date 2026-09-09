@@ -39,10 +39,12 @@ impl Ctx {
             .map(|s| s.trim().to_string())
             .unwrap_or_else(|| "backup".into());
 
-        let state_dir = std::env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home.join(".config"))
-            .join("dotfiles");
+        // Deliberately NOT XDG_CONFIG_HOME-aware. layers/core/home/.gitconfig
+        // has to name these include paths literally, and git does not expand
+        // environment variables in them -- so honoring XDG here would silently
+        // stop signing and delta from ever applying on a machine that sets it.
+        // Tests override this field directly.
+        let state_dir = home.join(".config").join("dotfiles");
 
         Ok(Self {
             backup_dir: home.join(".dotfiles-backup").join(stamp),

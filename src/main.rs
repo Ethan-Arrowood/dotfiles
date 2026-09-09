@@ -224,6 +224,12 @@ fn install(ctx: &Ctx, args: InstallArgs) -> Result<()> {
     shellinit::write(ctx, &profile, &selected)?;
 
     ui::head("Done");
+    let failures = ui::warning_count();
+    if failures > 0 && !ctx.dry_run {
+        ui::warn(&format!(
+            "{failures} step(s) reported a problem above; run `dotfiles doctor` to check"
+        ));
+    }
     if ctx.dry_run {
         println!("  dry run complete — re-run without --dry-run to apply\n");
     } else {
@@ -392,13 +398,19 @@ fn relink(ctx: &Ctx) -> Result<()> {
     let Some((_, names)) = shellinit::installed(ctx) else {
         bail!("nothing installed yet — run `dotfiles install` first");
     };
-    ui::head("Re-linking $HOME files");
+    ui::head("Re-linking managed files");
     for n in names {
         let Some(l) = layer::find(&n) else {
             ui::warn(&format!("unknown layer in recorded state: {n}"));
             continue;
         };
+        // Everything the install loop links, not just home/ -- this is the
+        // documented repair tool, and ssh config.d, the Claude rules and the
+        // skill links all go stale the same way.
         link::link_home_dir(ctx, &l.path(ctx))?;
+        claude::link_rules(ctx, &l)?;
+        skills::install(ctx, &l)?;
     }
+    ui::detail("ssh and app configs are re-linked by `dotfiles install`");
     Ok(())
 }

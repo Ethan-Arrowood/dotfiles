@@ -163,6 +163,15 @@ pub fn resolve(
     if selected.is_empty() {
         bail!("no layers selected");
     }
+    // Every other layer's shell fragments call helpers defined in core's
+    // 10-env.sh (path_prepend), so dropping core leaves them erroring on every
+    // shell start.
+    if !selected.iter().any(|l| l.name == "core") {
+        bail!(
+            "'core' cannot be dropped: the other layers' shell fragments depend on it \
+             (path_prepend and friends)"
+        );
+    }
     Ok(selected)
 }
 
@@ -195,6 +204,21 @@ mod tests {
             let dir = root.join("layers").join(l.name);
             assert!(dir.is_dir(), "layer '{}' has no {}", l.name, dir.display());
         }
+    }
+
+    #[test]
+    fn core_cannot_be_dropped() {
+        let ctx = Ctx::new(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+            true,
+            true,
+        )
+        .unwrap();
+        let err = match resolve(&ctx, "mac-dev", &[], &["core".to_string()]) {
+            Ok(_) => panic!("dropping core must be refused"),
+            Err(e) => e,
+        };
+        assert!(err.to_string().contains("core"), "{err}");
     }
 
     #[test]
