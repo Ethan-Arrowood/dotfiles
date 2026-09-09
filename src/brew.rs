@@ -123,10 +123,16 @@ pub fn ensure_installed(ctx: &Ctx) -> Result<()> {
         return Ok(());
     }
     ui::step("installing homebrew");
-    let script = "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"";
-    let ok = Cmd::new("/bin/bash")
-        .args(["-c", script])
-        .run(ctx, "homebrew installer")?;
+    // `bash -c "$(curl …)"` fails the same way a pipe does: if curl fails the
+    // substitution is empty, bash runs nothing and exits 0.
+    let ok = sys::run_remote_script(
+        ctx,
+        "homebrew installer",
+        "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh",
+        "/bin/bash",
+        &[],
+        &[("NONINTERACTIVE", "1")],
+    )?;
     if !ok {
         anyhow::bail!("homebrew install failed");
     }

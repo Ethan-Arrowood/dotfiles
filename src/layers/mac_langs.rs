@@ -69,12 +69,17 @@ fn rust(ctx: &Ctx) -> Result<()> {
         return Ok(());
     }
     ui::step("installing rustup");
-    let script = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-                  | sh -s -- -y --no-modify-path";
-    if !Cmd::new("/bin/sh")
-        .args(["-c", script])
-        .run(ctx, "rustup-init")?
-    {
+    // --no-modify-path: this repo owns the shell config, and rustup would
+    // otherwise append to ~/.zshenv -- which is a symlink into the repo, so the
+    // edit would land in tracked content.
+    if !sys::run_remote_script(
+        ctx,
+        "rustup-init",
+        "https://sh.rustup.rs",
+        "/bin/sh",
+        &["-y", "--no-modify-path"],
+        &[],
+    )? {
         ui::warn("rustup install failed");
         return Ok(());
     }
@@ -108,10 +113,22 @@ fn python(ctx: &Ctx) -> Result<()> {
         return Ok(());
     }
     ui::step("installing uv");
-    if !Cmd::new("/bin/sh")
-        .args(["-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"])
-        .run(ctx, "uv installer")?
-    {
+    // Same reasoning as rustup above. uv's installer is cargo-dist based, which
+    // reads INSTALLER_NO_MODIFY_PATH; newer versions also honor
+    // UV_NO_MODIFY_PATH. Without this it appends to ~/.zshenv, and since that
+    // is a symlink into this repo the line lands in tracked content -- which
+    // has already happened once here.
+    if !sys::run_remote_script(
+        ctx,
+        "uv installer",
+        "https://astral.sh/uv/install.sh",
+        "/bin/sh",
+        &[],
+        &[
+            ("INSTALLER_NO_MODIFY_PATH", "1"),
+            ("UV_NO_MODIFY_PATH", "1"),
+        ],
+    )? {
         ui::warn("uv install failed");
         return Ok(());
     }

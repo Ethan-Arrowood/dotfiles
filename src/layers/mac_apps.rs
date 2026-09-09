@@ -53,10 +53,14 @@ fn claude_code(ctx: &Ctx) -> Result<()> {
         ui::dry("install claude code cli");
         return Ok(());
     }
-    if !Cmd::new("/bin/bash")
-        .args(["-c", "curl -fsSL https://claude.ai/install.sh | bash"])
-        .run(ctx, "installing claude code cli")?
-    {
+    if !sys::run_remote_script(
+        ctx,
+        "installing claude code cli",
+        "https://claude.ai/install.sh",
+        "/bin/bash",
+        &[],
+        &[],
+    )? {
         ui::warn("claude code install failed");
     }
     Ok(())

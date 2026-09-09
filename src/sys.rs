@@ -77,6 +77,7 @@ fn is_executable(p: &std::path::Path) -> bool {
 pub struct Cmd {
     program: String,
     args: Vec<String>,
+    envs: Vec<(String, String)>,
     quiet: bool,
 }
 
@@ -85,6 +86,7 @@ impl Cmd {
         Self {
             program: program.into(),
             args: Vec::new(),
+            envs: Vec::new(),
             quiet: false,
         }
     }
@@ -100,6 +102,11 @@ impl Cmd {
         self.args.extend(items.into_iter().map(Into::into));
         self
     }
+    pub fn env(mut self, key: impl Into<String>, val: impl Into<String>) -> Self {
+        self.envs.push((key.into(), val.into()));
+        self
+    }
+
     /// Suppress the child's stdout/stderr.
     pub fn quiet(mut self) -> Self {
         self.quiet = true;
@@ -126,6 +133,9 @@ impl Cmd {
         ui::step(desc);
         let mut c = Command::new(&self.program);
         c.args(&self.args);
+        for (k, v) in &self.envs {
+            c.env(k, v);
+        }
         if self.quiet {
             c.stdout(Stdio::null()).stderr(Stdio::null());
         }
@@ -138,8 +148,12 @@ impl Cmd {
     /// Capture stdout+stderr. Never fails on a non-zero exit; the caller
     /// inspects `Capture::ok`.
     pub fn capture(&self) -> Result<Capture> {
-        let out: Output = Command::new(&self.program)
-            .args(&self.args)
+        let mut c = Command::new(&self.program);
+        c.args(&self.args);
+        for (k, v) in &self.envs {
+            c.env(k, v);
+        }
+        let out: Output = c
             .output()
             .map_err(|e| anyhow::anyhow!("could not run `{}`: {e}", self.display()))?;
         Ok(Capture {
@@ -388,6 +402,48 @@ pub fn login_shell_of_record() -> Option<String> {
         }
     }
     None
+}
+
+/// Download a script, then run it -- never `curl … | sh`.
+///
+/// A pipeline's exit status is the shell's, so a failed download exits 0 and
+/// the caller's error branch never fires. `set -o pipefail` would fix it on
+/// bash but /bin/sh is dash on many Linuxes. Downloading first also means a
+/// truncated transfer cannot execute half a script.
+///
+/// `envs` is how an installer is told not to edit shell rc files.
+pub fn run_remote_script(
+    ctx: &Ctx,
+    desc: &str,
+    url: &str,
+    interpreter: &str,
+    script_args: &[&str],
+    envs: &[(&str, &str)],
+) -> Result<bool> {
+    if ctx.dry_run {
+        crate::ui::dry(desc);
+        return Ok(true);
+    }
+    let dir = crate::tmpdir::PrivateTempDir::new("installer")?;
+    let script = dir.join("install.sh");
+
+    let downloaded = Cmd::new("curl")
+        .args(["-fsSL", url, "-o"])
+        .arg(script.to_string_lossy())
+        .run(ctx, &format!("downloading {url}"))?;
+    if !downloaded {
+        crate::ui::warn(&format!("could not download {url}"));
+        return Ok(false);
+    }
+
+    let mut cmd = Cmd::new(interpreter).arg(script.to_string_lossy());
+    for a in script_args {
+        cmd = cmd.arg(*a);
+    }
+    for (k, v) in envs {
+        cmd = cmd.env(*k, *v);
+    }
+    cmd.run(ctx, desc)
 }
 
 pub fn hostname_short() -> String {
