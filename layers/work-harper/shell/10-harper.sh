@@ -6,7 +6,14 @@
 HARPER_DEV_ROOT="${HARPER_DEV_ROOT:-$HOME/dev/harperfast}"
 
 alias harper="node $HARPER_DEV_ROOT/harper/dist/bin/harper.js"
-alias harper-clear="rm -rf $HOME/harper $HOME/.harperdb"
+# A function, not an alias: an alias bakes $HOME in at source time, so an
+# empty $HOME would expand to `rm -rf /harper`. Confirms first -- both of these
+# also delete ~/.harperdb, and they are one character apart.
+harper-clear() {
+  printf 'remove %s and %s? [y/N] ' "$HOME/harper" "$HOME/.harperdb"
+  read -r _reply
+  case "$_reply" in [Yy]*) rm -rf "${HOME:?}/harper" "${HOME:?}/.harperdb" ;; esac
+}
 alias harper-check="curl -sS localhost:9925/health"
 alias harper-install="harper install \
   --DEFAULTS_MODE=dev \
@@ -25,7 +32,11 @@ alias harper-install="harper install \
 
 alias hdb="node $HARPER_DEV_ROOT/harperdb/bin/harperdb.js"
 alias harperdb=hdb
-alias hdb-clear="rm -rf $HOME/hdb $HOME/.harperdb"
+hdb-clear() {
+  printf 'remove %s and %s? [y/N] ' "$HOME/hdb" "$HOME/.harperdb"
+  read -r _reply
+  case "$_reply" in [Yy]*) rm -rf "${HOME:?}/hdb" "${HOME:?}/.harperdb" ;; esac
+}
 alias hdb-install="hdb install \
   --DEFAULTS_MODE=dev \
   --TC_AGREEMENT=yes \

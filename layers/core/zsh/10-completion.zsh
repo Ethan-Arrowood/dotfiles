@@ -1,6 +1,9 @@
 # Completion + plugins. Everything is guarded so this file is harmless on a
 # container that has none of it installed.
 
+# -U keeps fpath de-duplicated, so re-sourcing ~/.zshrc does not grow it.
+typeset -U fpath
+
 if command -v brew >/dev/null 2>&1; then
   _brew_prefix="$(brew --prefix)"
   [[ -d "$_brew_prefix/share/zsh-completions" ]] && fpath=("$_brew_prefix/share/zsh-completions" $fpath)
@@ -20,7 +23,7 @@ fi
 
 zstyle ':completion:*' menu select
 zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'   # case-insensitive
-zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
+zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS:-}"
 zstyle ':completion:*' use-cache on
 zstyle ':completion:*' cache-path "${XDG_CACHE_HOME:-$HOME/.cache}/zsh/zcompcache"
 

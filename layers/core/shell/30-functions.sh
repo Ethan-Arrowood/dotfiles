@@ -17,6 +17,7 @@ mkcd() { mkdir -p "$1" && cd "$1" || return 1; }
 # Fresh worktree for a new branch, matching the layout used across repos.
 wt() {
   [ -n "$1" ] || { echo "usage: wt <branch>"; return 1; }
+  local root
   root="$(git rev-parse --show-toplevel)" || return 1
   git worktree add "$root/.claude/worktrees/$1" -b "$1" && cd "$root/.claude/worktrees/$1" || return 1
 }
