@@ -62,24 +62,49 @@ pub fn brew_bin() -> Option<PathBuf> {
 
 /// Put brew's environment into this process so later steps find the packages
 /// it installs without a new shell.
+///
+/// `brew shellenv` is shell source, not a list of assignments, and parsing it
+/// line by line does not work: Homebrew sets PATH through
+/// `eval "$(path_helper -s)"`, which has no `export ` prefix, and emits values
+/// like `"/opt/homebrew/share/info:${INFOPATH:-}"` that need shell expansion.
+/// A line parser drops PATH silently -- and then every later has()/which()
+/// misses brew-installed tools on a fresh machine.
+///
+/// So let a shell evaluate it and read the resulting environment back.
 pub fn load_shellenv() -> Result<()> {
     let Some(brew) = brew_bin() else {
         return Ok(());
     };
-    let out = Cmd::new(brew.to_string_lossy()).arg("shellenv").capture()?;
+
+    // NUL-separated so values containing newlines survive the round trip.
+    let script = format!(
+        "eval \"$({} shellenv)\" && exec /usr/bin/env -0",
+        brew.to_string_lossy()
+    );
+    let out = Cmd::new("/bin/sh").args(["-c", &script]).capture()?;
     if !out.ok {
+        ui::warn("could not evaluate `brew shellenv`; brew tools may not be found");
         return Ok(());
     }
-    for line in out.stdout.lines() {
-        // export KEY="value";
-        let Some(rest) = line.strip_prefix("export ") else {
+
+    for entry in out.stdout.split('\0') {
+        let Some((key, val)) = entry.split_once('=') else {
             continue;
         };
-        let Some((key, val)) = rest.split_once('=') else {
-            continue;
-        };
-        let val = val.trim_end_matches(';').trim_matches('"');
-        std::env::set_var(key, val);
+        // Only the variables brew manages. A wholesale import would drag in
+        // /bin/sh's own environment.
+        if matches!(
+            key,
+            "PATH"
+                | "MANPATH"
+                | "INFOPATH"
+                | "FPATH"
+                | "HOMEBREW_PREFIX"
+                | "HOMEBREW_CELLAR"
+                | "HOMEBREW_REPOSITORY"
+        ) {
+            std::env::set_var(key, val);
+        }
     }
     Ok(())
 }
@@ -256,6 +281,24 @@ mod tests {
         assert_eq!(e, vec![Entry::Formula("jq".into())]);
         assert_eq!(p.len(), 1);
         assert!(p[0].contains("line 2"), "{}", p[0]);
+    }
+
+    /// Homebrew emits PATH via `eval "$(path_helper -s)"`, with no `export `
+    /// prefix, so the old line-parser dropped it. Skipped when brew is absent.
+    #[test]
+    fn load_shellenv_imports_path() {
+        if brew_bin().is_none() {
+            return;
+        }
+        let before = std::env::var("PATH").unwrap_or_default();
+        std::env::set_var("PATH", "/usr/bin:/bin");
+        load_shellenv().unwrap();
+        let after = std::env::var("PATH").unwrap_or_default();
+        std::env::set_var("PATH", before);
+        assert!(
+            after.contains("homebrew") || after.contains("/usr/local/bin"),
+            "brew prefix missing from PATH after load_shellenv: {after}"
+        );
     }
 
     #[test]
