@@ -6,4 +6,3 @@ if command -v fnm >/dev/null 2>&1; then
   esac
 fi
 
-command -v corepack >/dev/null 2>&1 && export COREPACK_ENABLE_AUTO_PIN=0

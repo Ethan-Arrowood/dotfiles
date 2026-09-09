@@ -9,6 +9,3 @@ cask spotify
 cask discord
 cask podman-desktop
 cask daisydisk
-
-# Not available through Homebrew — install from the App Store or vendor:
-#   LastPass, NordLayer, Asana, Affinity, FileZilla

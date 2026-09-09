@@ -187,6 +187,69 @@ is_container,allow_global_changes}`.
 `cask <name>`, `tap <name>`, one per line, `#` comments allowed. A cask that
 has been renamed or pulled warns and the run continues.
 
+## Claude Code config
+
+Layers contribute **rule files**, not a `CLAUDE.md`. Everything in
+`~/.claude/rules/*.md` loads every session, so the repo can own whole topic
+files while `~/.claude/CLAUDE.md` stays untracked and machine-specific:
+
+```
+~/.claude/rules/general.md   -> symlink into this repo  (tracked, shared)
+~/.claude/CLAUDE.md          -> machine-local, untracked
+```
+
+A layer opts in by shipping `claude/rules/*.md`; those get symlinked into
+`~/.claude/rules/`. Nothing merges markdown sections, so a hand edit to
+`CLAUDE.md` is never clobbered by a reinstall.
+
+New or changed rule files load at the **start of the next session** — a rules
+directory that did not exist when a session started is not watched.
+
+Note: Claude Code skips a symlinked user-scope rule file in Cowork sessions on
+the desktop. Everywhere else it follows the link normally.
+
+## Skills
+
+Skills are not vendored here. Their source lives in its own repository, which
+gets cloned once and then symlinked into `~/.claude/skills/`. Claude Code
+follows a symlinked skill directory and reads `SKILL.md` from the target, so
+the clone is simultaneously the installed skill *and* an editable checkout —
+edit it in place and the change is live, with no re-sync step.
+
+A layer declares what it wants in a `Skillfile`, same format as a `Brewfile`:
+
+```
+repo  <owner>/<repo>            every skill in the repo
+skill <owner>/<repo>#<skill>    just that one
+```
+
+```
+# layers/core/Skillfile
+repo Ethan-Arrowood/skills
+
+# layers/work-harper/Skillfile
+repo harperfast/skills
+repo harperfast/skills-internal
+```
+
+Repos clone to `$DOTFILES_SRC_DIR/<owner>/<repo>`, default `~/dev`, with the
+owner lowercased so `Ethan-Arrowood/skills` lands beside `~/dev/ethan-arrowood/`.
+`gh repo clone` is used when available so private and internal repos work;
+otherwise plain `git clone` over ssh.
+
+An existing checkout is **never pulled or modified** — these are working trees
+you edit, so updating them is your call, not the installer's.
+
+Skills are found by locating `SKILL.md` rather than by assuming a path, because
+layouts differ: `Ethan-Arrowood/skills` and `harperfast/skills` put skills at
+the top level, while `harperfast/skills-internal` nests them under `skills/`.
+The search is bounded to two levels and stops descending once a directory is
+identified as a skill, so an example `SKILL.md` inside a skill does not become
+a phantom entry.
+
+A local-only skill that is a real directory in `~/.claude/skills/` coexists
+fine — nothing touches a name no `Skillfile` declares.
+
 ## Machine-local escape hatches
 
 Nothing here needs a fork:
@@ -246,7 +309,7 @@ repo. Every upload asks first; nothing touches your account unattended.
 
 Chosen by `--signing` (or `$DOTFILES_SIGNING`), default `auto`:
 
-| Mode | Behaviour |
+| Mode | Behavior |
 | --- | --- |
 | `auto` | the ssh key if there is one, else gpg key `79007EFD4678CB94`, else unsigned |
 | `ssh` | force ssh signing — no gpg, no gpg-agent, no pinentry |

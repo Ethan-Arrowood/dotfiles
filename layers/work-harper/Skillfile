@@ -1,0 +1,6 @@
+# Harper skills. `skills` is public and useful anywhere Harper apps get built;
+# `skills-internal` is internal and only belongs on a machine used for Harper
+# contribution — drop that line on a personal machine.
+
+repo harperfast/skills
+repo harperfast/skills-internal

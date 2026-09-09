@@ -1,6 +1,7 @@
 //! dotfiles — compose a machine from layers.
 
 mod brew;
+mod claude;
 mod ctx;
 mod doctor;
 mod github;
@@ -10,6 +11,7 @@ mod layers;
 mod link;
 mod shellinit;
 mod signing;
+mod skills;
 mod sys;
 mod ui;
 
@@ -206,7 +208,12 @@ fn install(ctx: &Ctx, args: InstallArgs) -> Result<()> {
     for l in &selected {
         ui::head(&format!("Layer: {} — {}", l.name, l.description));
         (l.install)(ctx, l)?;
+        // Applied to every layer, so a layer opts in by shipping the files
+        // rather than by adding code: home/ -> $HOME, claude/rules/*.md ->
+        // ~/.claude/rules/, Skillfile -> cloned and symlinked skills.
         link::link_home_dir(ctx, &l.path(ctx))?;
+        claude::link_rules(ctx, l)?;
+        skills::install(ctx, l)?;
     }
 
     ui::head("Shell init");

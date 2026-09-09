@@ -1,0 +1,8 @@
+# Skills for any dev machine. Cloned to ~/dev/<owner>/<repo> and symlinked
+# into ~/.claude/skills/, so the checkout is both the installed skill and an
+# editable source tree — edits are live, no re-sync.
+#
+#   repo  <owner>/<repo>            every skill in the repo
+#   skill <owner>/<repo>#<skill>    just that one
+
+repo Ethan-Arrowood/skills

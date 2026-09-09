@@ -114,7 +114,7 @@ impl Cmd {
         }
     }
 
-    /// Run it, honouring dry-run. `Ok(true)` means it ran and succeeded;
+    /// Run it, honoring dry-run. `Ok(true)` means it ran and succeeded;
     /// `Ok(false)` means it ran and failed. Only a failure to *spawn* is an
     /// `Err` -- a non-zero exit is data, not an error, because most of these
     /// steps are advisory.

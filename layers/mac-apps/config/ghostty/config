@@ -24,7 +24,7 @@ window-padding-y = 4
 window-save-state = always
 macos-titlebar-style = tabs
 
-# --- behaviour --------------------------------------------------------------
+# --- behavior --------------------------------------------------------------
 # `detect` already finds zsh; naming it skips the probe and fails loudly if the
 # integration ever breaks rather than silently doing nothing.
 shell-integration = zsh

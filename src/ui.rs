@@ -1,6 +1,6 @@
 //! Terminal output and prompting.
 //!
-//! Every user-visible line goes through here so `--dry-run` and colour
+//! Every user-visible line goes through here so `--dry-run` and color
 //! handling stay consistent across layers.
 
 use owo_colors::{OwoColorize, Stream::Stdout};

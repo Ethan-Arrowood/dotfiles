@@ -38,7 +38,3 @@ alias hdb-install="hdb install \
   --LOGGING_STDSTREAMS=true \
   --THREADS_COUNT=1 \
   --THREADS_DEBUG=false"
-
-alias grmut='git rm -r unitTests/'
-alias podman-docker='alias docker=podman'
-command -v podman >/dev/null 2>&1 && ! command -v docker >/dev/null 2>&1 && alias docker=podman
