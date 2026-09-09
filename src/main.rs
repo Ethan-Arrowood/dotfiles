@@ -13,6 +13,7 @@ mod shellinit;
 mod signing;
 mod skills;
 mod sys;
+mod tmpdir;
 mod ui;
 
 use anyhow::{bail, Result};

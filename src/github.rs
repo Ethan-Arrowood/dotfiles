@@ -12,6 +12,7 @@
 use crate::ctx::Ctx;
 use crate::signing::{self, GPG_KEY};
 use crate::sys::{self, Cmd};
+use crate::tmpdir::PrivateTempDir;
 use crate::ui;
 use anyhow::{bail, Result};
 
@@ -228,7 +229,10 @@ fn add_gpg(ctx: &Ctx) -> Result<()> {
         ui::warn("gpg export failed");
         return Ok(());
     }
-    let tmp = std::env::temp_dir().join(format!("dotfiles-gpg-pub-{}", std::process::id()));
+    // Public key, so not secret -- but a predictable path is still a clobber
+    // vector, and fs::write would follow a pre-planted symlink.
+    let dir = PrivateTempDir::new("gpg-pub")?;
+    let tmp = dir.join("key.asc");
     std::fs::write(&tmp, armored.stdout)?;
     if Cmd::new("gh")
         .args(["gpg-key", "add"])
@@ -239,7 +243,6 @@ fn add_gpg(ctx: &Ctx) -> Result<()> {
     } else {
         ui::warn("gpg key upload failed (already present?)");
     }
-    let _ = std::fs::remove_file(&tmp);
     Ok(())
 }
 
@@ -276,8 +279,15 @@ fn verify(ctx: &Ctx) {
 
     // A real signed commit in a throwaway repo is the only honest check that
     // signing is wired up end to end.
-    let tmp = std::env::temp_dir().join(format!("dotfiles-signprobe-{}", std::process::id()));
-    let _ = std::fs::create_dir_all(&tmp);
+    // A predictable path here is worse than it looks: create_dir_all succeeds
+    // through a symlink to a directory, so `git init` + `git commit` could
+    // land a junk commit in a real repository.
+    let Ok(probe) = PrivateTempDir::new("signprobe") else {
+        ui::warn("could not create a temporary directory for the signing probe");
+        return;
+    };
+    let tmp = probe.join("repo");
+    let _ = std::fs::create_dir(&tmp);
     let git = |args: &[&str]| {
         Cmd::new("git")
             .args(["-C", &tmp.to_string_lossy()])
@@ -302,7 +312,6 @@ fn verify(ctx: &Ctx) {
         "N" => ui::warn("commits are NOT signed — run: dotfiles install"),
         other => ui::warn(&format!("could not determine signing status ({other})")),
     }
-    let _ = std::fs::remove_dir_all(&tmp);
     let _ = ctx;
     println!();
 }

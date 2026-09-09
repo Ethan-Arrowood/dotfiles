@@ -10,6 +10,7 @@
 use crate::ctx::Ctx;
 use crate::signing::{self, GPG_KEY};
 use crate::sys::{self, Cmd};
+use crate::tmpdir::PrivateTempDir;
 use crate::ui;
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
@@ -108,7 +109,11 @@ pub fn export(ctx: &Ctx, out: Option<PathBuf>) -> Result<()> {
     );
     println!();
 
-    let tmp = temp_path("gpg-export");
+    // Everything below lives inside a 0700 directory that removes itself on
+    // drop, including on the error paths -- an earlier version left the
+    // plaintext export behind whenever encryption failed to spawn.
+    let dir = PrivateTempDir::new("gpg-export")?;
+    let tmp = dir.join("secret.asc");
     let armored = Cmd::new("gpg")
         .args(["--export-secret-keys", "--armor", GPG_KEY])
         .capture()?;
@@ -133,7 +138,6 @@ pub fn export(ctx: &Ctx, out: Option<PathBuf>) -> Result<()> {
             .arg(tmp.to_string_lossy())
             .run(ctx, "gpg --symmetric")?,
     };
-    let _ = std::fs::remove_file(&tmp);
     if !encrypted {
         bail!("encryption failed");
     }
@@ -172,7 +176,11 @@ pub fn import_file(ctx: &Ctx, file: &Path) -> Result<()> {
     };
 
     ui::head(&format!("Importing from {}", ctx.pretty(file)));
-    let tmp = temp_path("gpg-import");
+    // age and `gpg --output` create their output at the caller's umask, so the
+    // decrypted key would otherwise be world-readable. The private directory,
+    // not the file mode, is what protects it.
+    let dir = PrivateTempDir::new("gpg-import")?;
+    let tmp = dir.join("secret.asc");
     let decrypted = match cipher {
         Cipher::Age => Cmd::new("age")
             .args(["--decrypt", "--output"])
@@ -186,12 +194,9 @@ pub fn import_file(ctx: &Ctx, file: &Path) -> Result<()> {
             .run(ctx, "gpg --decrypt")?,
     };
     if !decrypted {
-        let _ = std::fs::remove_file(&tmp);
         bail!("decryption failed (wrong passphrase?)");
     }
-    let result = import_armored(ctx, &tmp);
-    let _ = std::fs::remove_file(&tmp);
-    result
+    import_armored(ctx, &tmp)
 }
 
 /// Pull the armored key straight out of the Dashlane vault, so a new machine
@@ -226,11 +231,10 @@ pub fn import_dashlane(ctx: &Ctx, reference: &str) -> Result<()> {
         );
     }
 
-    let tmp = temp_path("gpg-dashlane");
+    let dir = PrivateTempDir::new("gpg-dashlane")?;
+    let tmp = dir.join("secret.asc");
     write_private(&tmp, out.stdout.as_bytes())?;
-    let result = import_armored(ctx, &tmp);
-    let _ = std::fs::remove_file(&tmp);
-    result
+    import_armored(ctx, &tmp)
 }
 
 fn import_armored(ctx: &Ctx, path: &Path) -> Result<()> {
@@ -277,17 +281,15 @@ fn trust(_ctx: &Ctx) -> Result<()> {
     Ok(())
 }
 
-fn temp_path(tag: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("dotfiles-{tag}-{}", std::process::id()))
-}
-
-/// Write key material 0600 from the start, never world-readable even briefly.
+/// Write key material 0600. `create_new` rather than `create`: on an existing
+/// path `create` keeps the old mode and follows a symlink, so a pre-planted
+/// file would both stay world-readable and redirect the write. The containing
+/// directory is already private, so this is defence in depth.
 fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
     let mut f = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
+        .create_new(true)
         .write(true)
         .mode(0o600)
         .open(path)
