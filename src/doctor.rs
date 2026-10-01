@@ -144,22 +144,10 @@ pub fn run(ctx: &Ctx) -> Result<bool> {
                 "git signs with {signing_key} but that file does not exist"
             ));
         }
-    } else if signing::gpg_key_present(&signing_key) {
-        r.ok(&format!("gpg signing key {signing_key} present"));
-        if let Some(days) = gpg_days_left(&signing_key) {
-            if days < 0 {
-                r.error(&format!("signing key EXPIRED {} days ago", -days));
-            } else if days < 60 {
-                // r.warn, not ui::warn: this has to affect the exit code, or
-                // `doctor` reports success on a key that is about to expire.
-                r.warn(&format!("signing key expires in {days} days"));
-            } else {
-                r.ok(&format!("signing key valid for {days} more days"));
-            }
-        }
     } else {
         r.warn(&format!(
-            "git is configured to sign with {signing_key} but it is not in the keyring"
+            "git is configured to sign with {signing_key}, but gpg signing was removed; \
+             re-run `dotfiles install` to switch to the ssh key"
         ));
     }
 
@@ -207,25 +195,4 @@ fn shellexpand_home(ctx: &Ctx, p: &str) -> String {
         Some(rest) => ctx.home.join(rest).display().to_string(),
         None => p.to_string(),
     }
-}
-
-/// Days until the gpg key expires, from the colon-delimited listing.
-fn gpg_days_left(key: &str) -> Option<i64> {
-    let out = Cmd::new("gpg")
-        .args(["--list-secret-keys", "--with-colons", key])
-        .capture()
-        .ok()?;
-    let expiry: i64 = out
-        .stdout
-        .lines()
-        .find(|l| l.starts_with("sec:"))
-        .and_then(|l| l.split(':').nth(6).map(String::from))
-        .filter(|s| !s.is_empty() && s != "0")?
-        .parse()
-        .ok()?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?
-        .as_secs() as i64;
-    Some((expiry - now) / 86400)
 }

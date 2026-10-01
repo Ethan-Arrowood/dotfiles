@@ -33,7 +33,7 @@ src/            the orchestrator
   layer.rs      registry: the single source of truth for which layers exist
   layers/       one module per layer
   shellinit.rs  generates ~/.config/dotfiles/init.sh
-  signing.rs    ssh vs gpg commit signing
+  signing.rs    ssh commit signing
 layers/         layer assets (symlinked into $HOME)
 profiles/       named layer sets
 ```
@@ -92,13 +92,12 @@ a sane built-in.
 
 ```bash
 dotfiles install [--profile NAME] [--with LAYER] [--without LAYER] [--dry-run] [--yes]
-                 [--signing auto|ssh|gpg|off] [--update]
+                 [--signing auto|ssh|off] [--update]
 dotfiles list      # profiles and layers
 dotfiles status    # what this machine has installed, and where links point
 dotfiles link      # re-link $HOME files only, no packages
 dotfiles doctor    # missing tools, broken links, key expiry
-dotfiles github    # register ssh + gpg keys with GitHub
-dotfiles key       # move the signing key between machines (export/import/status)
+dotfiles github    # register this machine's ssh key with GitHub (auth + signing)
 ```
 
 ### Safety
@@ -297,14 +296,13 @@ SSH regardless of the URL you paste.
 dotfiles github
 ```
 
-GitHub treats these as three separate uploads, which is the part worth not
-having to remember:
+GitHub treats these as two separate uploads of the same key, which is the part
+worth not having to remember:
 
 | What | Purpose | Token scope |
 | --- | --- | --- |
 | ssh **authentication** key | `git push` works | `admin:public_key` |
-| ssh **signing** key | Verified badge (ssh signing) | `admin:ssh_signing_key` |
-| gpg key | Verified badge (gpg signing) | `write:gpg_key` |
+| ssh **signing** key | commits show Verified | `admin:ssh_signing_key` |
 
 The same ssh key has to be uploaded **twice**, once as each type — that is the
 step everyone forgets. `dotfiles github` checks what is already registered,
@@ -314,32 +312,26 @@ repo. Every upload asks first; nothing touches your account unattended.
 
 ## Commit signing
 
-Chosen by `--signing` (or `$DOTFILES_SIGNING`), default `auto`:
+One method: **the machine's own ssh key**. The same key that pushes also signs.
 
-| Mode | Behavior |
+| `--signing` | Behavior |
 | --- | --- |
-| `auto` | the ssh key if there is one, else gpg key `79007EFD4678CB94`, else unsigned |
-| `ssh` | force ssh signing — no gpg, no gpg-agent, no pinentry |
-| `gpg` | force gpg |
-| `off` | no signing |
+| `auto` (default) | sign if this machine has an ssh key, else don't |
+| `ssh` | sign, and fail loudly if there is no key |
+| `off` | don't sign |
 
-**`auto` prefers ssh.** Every machine this repo sets up has an ssh key; it has
-no agent, pinentry or expiry to manage, and it signs inside a devcontainer over
-a forwarded agent with no extra setup. gpg is the fallback for a machine that
-has the gpg key but no ssh key, and stays reachable with `--signing gpg`.
+Nothing is written into `~/.gitconfig`. The settings go in a generated include
+([`signing.rs`](src/signing.rs)), so a machine with no key gets a working git
+rather than one that fails on every commit.
 
-Neither mode is written into `~/.gitconfig` — both go to a generated include,
-so a machine with no key at all gets working git rather than a git that fails
-on every commit. Explicit `--signing ssh` with no ssh key present refuses
-outright rather than writing a config that points at a missing file.
-
-The catch with ssh signing: GitHub shows **Unverified** until the key is
-uploaded a *second* time as a signing key. Pushes work either way, so it is
-easy to miss — `dotfiles install` checks for this and tells you to run
-`dotfiles github`.
-
-SSH signing also writes `~/.ssh/allowed_signers`, without which git can create
+Signing also writes `~/.ssh/allowed_signers`, without which git can create
 signatures but not verify its own.
+
+**The catch:** GitHub keeps *two* lists — authentication keys and signing keys
+— and the same public key has to be uploaded to both. Pushing works with only
+the first, so a missing signing key shows up as **Unverified** commits and
+nothing else. `dotfiles github` does both uploads; `dotfiles install` checks
+and tells you if one is missing.
 
 ## Machines, containers and remote boxes
 
@@ -362,11 +354,10 @@ ability to both push *and* sign, while the private key never leaves your
 laptop. Verified: with the private key file deleted and only the agent holding
 it, `git commit` produces `%G? = G`.
 
-This is the practical argument for ssh signing over gpg. Agent forwarding is
-built into ssh and into VS Code's devcontainer and Remote-SSH support. Doing
-the same with gpg means forwarding the gpg-agent socket via `RemoteForward`,
-with matching gpg versions and `extra-socket` configured on both ends — it
-works, but it is a thing you maintain.
+This is why signing is ssh-only. Agent forwarding is built into ssh and into
+VS Code's devcontainer and Remote-SSH support; the gpg equivalent means
+forwarding the gpg-agent socket via `RemoteForward`, with matching versions and
+`extra-socket` on both ends. It works, but it is a thing you maintain forever.
 
 ### Devcontainers, specifically
 
@@ -416,48 +407,20 @@ Host mybox
 touch, and anyone with root on the far end can use it for as long as you are
 connected. That is why this repo's `99-defaults.conf` does not set it.
 
-## Moving the signing key to a new machine
+## The old GPG key (historical)
 
-**Do not put the private key in a repo or a gist.** A "secret" gist is
-*unlisted*, not private — anyone with the URL reads it, no login needed, and
-they get crawled. A private repo is readable by every token with `repo` scope
-(CI, OAuth apps, agents) and git history keeps the file after you delete it.
+Commits were GPG-signed through 2026 with key `79007EFD4678CB94` (RSA 4096,
+expires 2028-07-19). **Dashlane holds both halves** — that is the only copy,
+and it is where it should stay.
 
-Three options, in order of preference:
+This tool no longer touches it. Signing is ssh-only, so nothing here needs a
+portable private key, and the code never handles key material. If you ever need
+the old key back — verifying an old signature, say:
 
-1. **Don't move it.** This is now the default — `auto` signs with the machine's
-   own ssh key. Per-machine keys beat one portable key: nothing sensitive
-   crosses the network, and revoking one machine is one click. The rest of this
-   section is the fallback for when you specifically want gpg back.
-2. **Password manager.** The key's own UID says `(Dashlane)` — store the
-   armored export as a secure note. Purpose-built for exactly this.
-3. **Encrypted file, stored anywhere.** If you want the convenience of pulling
-   it down from a private repo or cloud storage:
+```bash
+dcli read 'dl://<secret-id>' | gpg --import
+gpg --edit-key 79007EFD4678CB94 trust   # 5 (ultimate), then quit
+```
 
-   ```bash
-   # old machine — asks for the key passphrase, then a new file passphrase
-   dotfiles key export -o ~/gpg-signing-key.age
-
-   # new machine
-   dotfiles key import ~/gpg-signing-key.age
-   dotfiles install --signing gpg
-   ```
-
-   Or skip the file entirely, since the key is already in your vault:
-
-   ```bash
-   dcli sync
-   dotfiles key import --dashlane "GPG signing key"   # by title, or dl://<id>
-   ```
-
-   This refuses anything that is not a `PRIVATE KEY BLOCK`, which catches the
-   common mistake of having stored only the public export.
-
-   The output is age-encrypted (or `gpg --symmetric` if age isn't installed) on
-   top of the passphrase already on the key, so the file is an opaque blob.
-   *That* is safe in a private repo. Keep the file passphrase in your password
-   manager, not next to the file.
-
-`dotfiles key status` shows what signing material a machine currently has, and
-`dotfiles doctor` warns when the gpg key is within 60 days of expiry (this one
-expires 2028-07-19).
+Find the id with `dcli password "GPG signing key" -o json`. That is a manual
+step on purpose: a key you need once every few years is not worth a code path.

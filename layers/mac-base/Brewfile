@@ -15,9 +15,6 @@ formula watch
 formula htop
 formula tmux
 formula mkcert                  # local TLS certs
-formula gnupg                   # commit signing
-formula age                     # encrypts the portable key export
-formula pinentry-mac            # graphical passphrase prompt
 formula starship                # prompt
 formula zsh-completions
 formula zsh-autosuggestions

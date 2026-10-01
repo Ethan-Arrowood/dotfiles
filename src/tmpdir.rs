@@ -1,14 +1,14 @@
 //! A private temporary directory for secret material.
 //!
-//! Key material must never touch a path another user can predict or pre-create.
+//! Downloaded installers and scratch working directories must not sit at a
+//! path another user can predict or pre-create.
 //! `create_dir` fails if the path exists, which makes creation atomic against a
 //! pre-planted file or symlink, and 0700 means nothing inside can be reached,
 //! replaced, or symlink-swapped afterwards. Files created within therefore need
-//! no defence of their own -- which matters because `age` and `gpg --output`
-//! create their output at the caller's umask, typically 0644.
+//! no defence of their own -- which matters for anything that creates its
+//! output at the caller's umask rather than explicitly.
 //!
-//! The directory removes itself on drop, including on the error paths that
-//! previously leaked a plaintext export.
+//! The directory removes itself on drop, including on error paths.
 
 use anyhow::{bail, Context, Result};
 #[cfg(test)]

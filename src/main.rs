@@ -5,7 +5,6 @@ mod claude;
 mod ctx;
 mod doctor;
 mod github;
-mod key;
 mod layer;
 mod layers;
 mod link;
@@ -19,7 +18,6 @@ mod ui;
 use anyhow::{bail, Result};
 use clap::{Args, Parser, Subcommand};
 use ctx::Ctx;
-use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(
@@ -46,11 +44,9 @@ enum Command {
     Link,
     /// Check the current machine for problems
     Doctor,
-    /// Register your ssh + gpg keys with GitHub
+    /// Register this machine's ssh key with GitHub (auth + signing)
     #[command(alias = "gh")]
     Github,
-    /// Move the signing key between machines safely
-    Key(KeyArgs),
 }
 
 #[derive(Args)]
@@ -74,34 +70,8 @@ struct InstallArgs {
     #[arg(long)]
     update: bool,
     /// Commit signing mode [default: from $DOTFILES_SIGNING, else auto]
-    #[arg(long, value_name = "auto|ssh|gpg|off")]
+    #[arg(long, value_name = "auto|ssh|off")]
     signing: Option<String>,
-}
-
-#[derive(Args)]
-struct KeyArgs {
-    #[command(subcommand)]
-    command: Option<KeyCommand>,
-}
-
-#[derive(Subcommand)]
-enum KeyCommand {
-    /// Encrypt this machine's gpg secret key
-    Export {
-        /// Where to write it
-        #[arg(short, long)]
-        out: Option<PathBuf>,
-    },
-    /// Decrypt and import a key on a new machine
-    Import {
-        /// Encrypted file produced by `key export`
-        file: Option<PathBuf>,
-        /// Pull it straight from the Dashlane vault instead
-        #[arg(long, value_name = "dl://id | title")]
-        dashlane: Option<String>,
-    },
-    /// What signing material this machine has
-    Status,
 }
 
 fn main() {
@@ -142,18 +112,6 @@ fn real_main() -> Result<()> {
         Command::Github => {
             let ctx = Ctx::new(root, false, false)?;
             github::run(&ctx)
-        }
-        Command::Key(args) => {
-            let ctx = Ctx::new(root, false, false)?;
-            match args.command.unwrap_or(KeyCommand::Status) {
-                KeyCommand::Status => key::status(&ctx),
-                KeyCommand::Export { out } => key::export(&ctx, out),
-                KeyCommand::Import { file, dashlane } => match (file, dashlane) {
-                    (_, Some(reference)) => key::import_dashlane(&ctx, &reference),
-                    (Some(f), None) => key::import_file(&ctx, &f),
-                    (None, None) => bail!("usage: dotfiles key import <FILE> | --dashlane <ref>"),
-                },
-            }
         }
     }
 }

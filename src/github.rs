@@ -5,12 +5,11 @@
 //!
 //! - ssh AUTHENTICATION key (git push) -- scope `admin:public_key`
 //! - ssh SIGNING key (Verified badge) -- scope `admin:ssh_signing_key`
-//! - gpg key (Verified badge) -- scope `write:gpg_key`
 //!
 //! The same ssh key must be uploaded twice, once as each type.
 
 use crate::ctx::Ctx;
-use crate::signing::{self, GPG_KEY};
+use crate::signing;
 use crate::sys::{self, Cmd};
 use crate::tmpdir::PrivateTempDir;
 use crate::ui;
@@ -130,11 +129,8 @@ pub fn run(ctx: &Ctx) -> Result<()> {
             &format!("{} (signing)", key_title()),
         )?;
     } else {
-        ui::skip("git signs with gpg, not ssh — skipping the ssh signing key");
+        ui::skip("git is not set to sign with ssh — run `dotfiles install` first");
     }
-
-    ui::head(&format!("GPG key: {GPG_KEY}"));
-    add_gpg(ctx)?;
 
     verify(ctx);
     Ok(())
@@ -196,52 +192,6 @@ fn add_ssh(
         ui::ok(&format!("uploaded ssh {label} key"));
     } else {
         ui::warn(&format!("ssh {label} key upload failed"));
-    }
-    Ok(())
-}
-
-fn add_gpg(ctx: &Ctx) -> Result<()> {
-    if !signing::gpg_key_present(GPG_KEY) {
-        ui::skip(&format!("gpg key {GPG_KEY} not in this keyring"));
-        return Ok(());
-    }
-    if let Ok(listed) = Cmd::new("gh").args(["gpg-key", "list"]).capture() {
-        if listed.ok && listed.stdout.contains(GPG_KEY) {
-            ui::skip("gpg key already on github");
-            return Ok(());
-        }
-    }
-    if !ensure_scope(ctx, "write:gpg_key") {
-        ui::warn("skipping gpg key upload");
-        return Ok(());
-    }
-    if !ui::confirm(
-        &format!("Upload gpg public key {GPG_KEY} to github?"),
-        ctx.assume_yes,
-    ) {
-        ui::skip("declined");
-        return Ok(());
-    }
-    let armored = Cmd::new("gpg")
-        .args(["--armor", "--export", GPG_KEY])
-        .capture()?;
-    if !armored.ok {
-        ui::warn("gpg export failed");
-        return Ok(());
-    }
-    // Public key, so not secret -- but a predictable path is still a clobber
-    // vector, and fs::write would follow a pre-planted symlink.
-    let dir = PrivateTempDir::new("gpg-pub")?;
-    let tmp = dir.join("key.asc");
-    std::fs::write(&tmp, armored.stdout)?;
-    if Cmd::new("gh")
-        .args(["gpg-key", "add"])
-        .arg(tmp.to_string_lossy())
-        .run(ctx, "gh gpg-key add")?
-    {
-        ui::ok("uploaded gpg public key");
-    } else {
-        ui::warn("gpg key upload failed (already present?)");
     }
     Ok(())
 }
