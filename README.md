@@ -16,6 +16,10 @@ that already match, and does not touch installed toolchains — CI asserts this.
 Add `--dry-run` to see the plan without touching anything, and `--update` to
 refresh toolchains, which is otherwise never done implicitly.
 
+Auditing rather than using it? [ARCHITECTURE.md](ARCHITECTURE.md) walks the
+code: the install loop, every path that touches `$HOME`, the three dangerous
+operations and their guards, and what the tests actually assert.
+
 ## How it is built
 
 A Rust binary (the orchestrator) plus this repo (the layer assets) — the same
