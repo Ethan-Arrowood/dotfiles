@@ -117,7 +117,7 @@ No private key material is handled anywhere in this codebase.
 
 ## Reading order
 
-1. [`layer.rs`](src/layer.rs) — what a layer is (177 lines)
+1. [`layer.rs`](src/layer.rs) — what a layer is; the `registry()` list is the single source of truth for which layers exist
 2. [`main.rs` `install()`](src/main.rs) — the loop
 3. [`link.rs`](src/link.rs) — the only code that can lose data
 4. [`sys.rs` `allow_global_changes`](src/sys.rs) — the guard
