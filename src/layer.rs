@@ -6,7 +6,7 @@
 //! so there is no metadata file to drift out of sync with the code.
 
 use crate::ctx::Ctx;
-use crate::sys::Os;
+use crate::sys;
 use anyhow::{bail, Context, Result};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -18,7 +18,8 @@ pub struct Layer {
     /// directory name under `layers/`.
     pub name: &'static str,
     pub description: &'static str,
-    pub platforms: &'static [Os],
+    /// macOS-only. Everything else runs anywhere, including containers.
+    pub macos_only: bool,
     pub install: InstallFn,
 }
 
@@ -26,24 +27,17 @@ impl Layer {
     pub fn path(&self, ctx: &Ctx) -> PathBuf {
         ctx.root.join("layers").join(self.name)
     }
-    pub fn supports(&self, os: Os) -> bool {
-        self.platforms.is_empty() || self.platforms.contains(&os)
+    pub fn supported(&self) -> bool {
+        !self.macos_only || sys::is_macos()
     }
-    pub fn platform_label(&self) -> String {
-        if self.platforms.is_empty() {
-            "any".into()
+    pub fn platform_label(&self) -> &'static str {
+        if self.macos_only {
+            "macos"
         } else {
-            self.platforms
-                .iter()
-                .map(|p| p.as_str())
-                .collect::<Vec<_>>()
-                .join(" ")
+            "any"
         }
     }
 }
-
-pub const ANY: &[Os] = &[];
-pub const MACOS: &[Os] = &[Os::MacOs];
 
 /// Every layer. **Declaration order is install order** -- and the order
 /// shell fragments are sourced in. There is no separate order field and no
@@ -54,37 +48,37 @@ pub fn registry() -> Vec<Layer> {
         Layer {
             name: "core",
             description: "zsh + git + ssh. Portable base for any machine or container.",
-            platforms: ANY,
+            macos_only: false,
             install: layers::core::install,
         },
         Layer {
             name: "mac-base",
             description: "Xcode CLT, Homebrew, CLI tools, macOS system defaults.",
-            platforms: MACOS,
+            macos_only: true,
             install: layers::mac_base::install,
         },
         Layer {
             name: "mac-langs",
             description: "Node (fnm), Rust (rustup), Python (uv), C/C++ build tools.",
-            platforms: MACOS,
+            macos_only: true,
             install: layers::mac_langs::install,
         },
         Layer {
             name: "mac-apps",
             description: "Essential apps: Chrome, VS Code, Claude, Ghostty, Dashlane CLI.",
-            platforms: MACOS,
+            macos_only: true,
             install: layers::mac_apps::install,
         },
         Layer {
             name: "mac-apps-extra",
             description: "Quality-of-life apps: Slack, Zoom, Spotify, Discord, containers.",
-            platforms: MACOS,
+            macos_only: true,
             install: layers::mac_apps_extra::install,
         },
         Layer {
             name: "work-harper",
             description: "Harper dev-server aliases + LastPass. Opt-in only.",
-            platforms: ANY,
+            macos_only: false,
             install: layers::work_harper::install,
         },
     ]
@@ -218,8 +212,9 @@ mod tests {
 
     #[test]
     fn core_runs_anywhere_and_mac_layers_do_not() {
-        assert!(find("core").unwrap().supports(Os::Linux));
-        assert!(!find("mac-base").unwrap().supports(Os::Linux));
-        assert!(find("work-harper").unwrap().supports(Os::Linux));
+        assert!(!find("core").unwrap().macos_only);
+        assert!(!find("work-harper").unwrap().macos_only);
+        assert!(find("mac-base").unwrap().macos_only);
+        assert!(find("mac-apps").unwrap().macos_only);
     }
 }

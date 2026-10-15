@@ -126,21 +126,23 @@ fn install(ctx: &Ctx, args: InstallArgs) -> Result<()> {
 
     let selected = layer::resolve(ctx, &profile, &args.with, &args.without)?;
 
-    let os = sys::Os::current();
     for l in &selected {
-        if !l.supports(os) {
+        if !l.supported() {
             bail!(
-                "layer '{}' does not support {} (supports: {})",
+                "layer '{}' is macOS-only; this is {}",
                 l.name,
-                os.as_str(),
-                l.platform_label()
+                std::env::consts::OS
             );
         }
     }
 
     ui::head("Plan");
     println!("  profile   {profile}");
-    println!("  platform  {} ({})", os.as_str(), std::env::consts::ARCH);
+    println!(
+        "  platform  {} ({})",
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
     println!(
         "  layers    {}",
         selected
@@ -295,7 +297,7 @@ fn status(ctx: &Ctx) -> Result<()> {
     ui::head("Machine");
     println!(
         "  platform   {} ({}){}",
-        sys::Os::current().as_str(),
+        std::env::consts::OS,
         std::env::consts::ARCH,
         if sys::is_container() {
             ", container"

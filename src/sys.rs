@@ -6,33 +6,8 @@ use anyhow::Result;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(clippy::enum_variant_names)]
-pub enum Os {
-    MacOs,
-    Linux,
-    Other,
-}
-
-impl Os {
-    pub fn current() -> Self {
-        match std::env::consts::OS {
-            "macos" => Os::MacOs,
-            "linux" => Os::Linux,
-            _ => Os::Other,
-        }
-    }
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Os::MacOs => "macos",
-            Os::Linux => "linux",
-            Os::Other => "other",
-        }
-    }
-}
-
 pub fn is_macos() -> bool {
-    Os::current() == Os::MacOs
+    std::env::consts::OS == "macos"
 }
 
 /// Inside a container / devcontainer / CI, where prompting and GUI installs
