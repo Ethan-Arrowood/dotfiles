@@ -4,15 +4,11 @@ For auditing the code, not using it — [README.md](README.md) covers usage.
 
 ## The whole thing in one paragraph
 
-A layer is a name plus a directory of files. [`layer.rs`](src/layer.rs) holds
-the list of layers; a profile is a text file naming some of them. `install`
-resolves profile + `--with` − `--without` into an ordered list, runs each
-layer's install function, then applies three generic steps to every layer.
-That's it. Everything else is detail.
+A layer is a name plus a directory of files. [`layer.rs`](src/layer.rs) holds the list of layers; a profile is a text file naming some of them. `install` resolves profile + `--with` − `--without` into an ordered list, runs each layer's install function, then applies three generic steps to every layer. That's it. Everything else is detail.
 
 ## The install loop
 
-[`main.rs` `install()`](src/main.rs) is ~70 lines and worth reading first:
+[`main.rs` `install()`](src/main.rs) is short and worth reading first:
 
 ```rust
 for l in &selected {
@@ -24,24 +20,15 @@ for l in &selected {
 shellinit::write(ctx, &profile, &selected)?; // → ~/.config/dotfiles/init.sh
 ```
 
-The last three are why a layer usually needs **no code** — it opts in by
-shipping files. Only layers doing something unusual (installing Homebrew,
-writing macOS defaults) have an install function with real content.
+The last three are why a layer usually needs **no code** — it opts in by shipping files. Only layers doing something unusual (installing Homebrew, writing macOS defaults) have an install function with real content.
 
-`Ctx` ([`ctx.rs`](src/ctx.rs)) is passed everywhere and holds: repo root, real
-`$HOME`, `dry_run`, `assume_yes`, `update`, and where backups go. If you want
-to know whether something can write, look for `ctx.dry_run`.
+`Ctx` ([`ctx.rs`](src/ctx.rs)) is passed everywhere and holds: repo root, real `$HOME`, where backups go, and the install-only flags `dry_run`, `assume_yes`, `update` and `signing`. If you want to know whether something can write, look for `ctx.dry_run`. Only `install` sets those flags — every other command takes the defaults.
 
-Finding the repo ([`find_root`](src/ctx.rs)) looks for a directory containing
-`layers/` — the git checkout is incidental. In order: `$DOTFILES_ROOT`, then
-the root recorded in the generated `~/.config/dotfiles/init.sh`, then relative
-to the binary, then the cwd. `install.sh` exports the variable before handing
-over, so a first run never needs the fallbacks.
+Finding the repo ([`find_root`](src/ctx.rs)) looks for a directory containing `layers/` — the git checkout is incidental. In order: `$DOTFILES_ROOT`, then the root recorded in the generated `~/.config/dotfiles/init.sh`, then relative to the binary, then the cwd. `install.sh` exports the variable before handing over, so a first run never needs the fallbacks.
 
 ## Everything that touches $HOME
 
-Only four places. Every one goes through
-[`link::link_file`](src/link.rs) except where noted.
+Only four places. Every one goes through [`link::link_file`](src/link.rs) except where noted.
 
 | What | Where | Code |
 | --- | --- | --- |
@@ -50,54 +37,34 @@ Only four places. Every one goes through
 | `claude/rules/*.md` → `~/.claude/rules/` | | [`claude.rs`](src/claude.rs) |
 | Skill dirs → `~/.claude/skills/` | symlinks into the cloned repo | [`skills.rs`](src/skills.rs) |
 
-Plus two **generated** files (written, not linked):
-`~/.config/dotfiles/init.sh` ([`shellinit.rs`](src/shellinit.rs)) and
-`~/.config/dotfiles/gitconfig.signing` ([`signing.rs`](src/signing.rs)).
+Plus two **generated** files (written, not linked): `~/.config/dotfiles/init.sh` ([`shellinit.rs`](src/shellinit.rs)) and `~/.config/dotfiles/gitconfig.signing` ([`signing.rs`](src/signing.rs)).
 
 ### link_file is the one to read closely
 
-[`link.rs`](src/link.rs) is the only code that can lose data, so it is
-deliberately boring:
+[`link.rs`](src/link.rs) is the only code that can lose data, so it is deliberately boring:
 
 - Destination already links to the right place → skip.
-- Destination is a **real directory** → leave it alone and warn. (Your
-  hand-written `~/.claude/skills/learned` survives a Skillfile naming it.)
-- Anything else → move to `~/.dotfiles-backup/<timestamp>/<path relative to
-  $HOME>`, then symlink. The relative path matters: keyed on basename alone,
-  `~/.ssh/config` and `~/.config/ghostty/config` collided and `rename`
-  replaces silently.
+- Destination is a **real directory** → leave it alone and warn. (Your hand-written `~/.claude/skills/learned` survives a Skillfile naming it.)
+- Anything else → move to `~/.dotfiles-backup/<timestamp>/<path relative to $HOME>`, then symlink. The relative path matters: keyed on basename alone, `~/.ssh/config` and `~/.config/ghostty/config` collided and `rename` replaces silently.
 - An existing backup entry is **refused**, never overwritten.
 
 Seven tests in that file cover exactly these cases, against a throwaway `$HOME`.
 
 ## The three dangerous operations
 
-Everything that escapes `$HOME` is behind
-[`sys::allow_global_changes()`](src/sys.rs):
+Everything that escapes `$HOME` is behind [`sys::allow_global_changes()`](src/sys.rs):
 
-1. **Package installs** — `brew` ([`brew.rs`](src/brew.rs)) and `sys_install`,
-   which escalates to root. Guarded *inside* `sys_install` so no caller can
-   forget.
-2. **macOS system state** — `defaults write`, `scutil --set`, Xcode CLT
-   ([`mac_base.rs`](src/layers/mac_base.rs)).
-3. **Account state** — `chsh` and `ssh-add --apple-use-keychain`
-   ([`core.rs`](src/layers/core.rs)). The second looks `$HOME`-scoped but
-   writes the real login Keychain.
+1. **Package installs** — `brew` ([`brew.rs`](src/brew.rs)) and `sys_install`, which escalates to root. Guarded *inside* `sys_install` so no caller can forget.
+2. **macOS system state** — `defaults write`, `scutil --set`, Xcode CLT ([`mac_base.rs`](src/layers/mac_base.rs)).
+3. **Account state** — `chsh` and `ssh-add --apple-use-keychain` ([`core.rs`](src/layers/core.rs)). The second looks `$HOME`-scoped but writes the real login Keychain.
 
-The guard compares `$HOME` against the account's home from `dscl`/`getent`. A
-mismatch means a test harness, so global changes are skipped. **It fails
-closed** — if it cannot determine the real home it blocks rather than allows.
-`DOTFILES_ALLOW_SANDBOXED_HOME=1` overrides. CI asserts it fires.
+The guard compares `$HOME` against the account's home from `dscl`/`getent`. A mismatch means a test harness, so global changes are skipped. **It fails closed** — if it cannot determine the real home it blocks rather than allows. `DOTFILES_ALLOW_SANDBOXED_HOME=1` overrides. CI asserts it fires.
 
-This exists because a sandboxed-`$HOME` test run once installed packages and
-rewrote system preferences for real.
+This exists because a sandboxed-`$HOME` test run once installed packages and rewrote system preferences for real.
 
 ## Shell config
 
-`~/.zshrc` is a three-line loader. The real file is
-`~/.config/dotfiles/init.sh`, generated by
-[`shellinit.rs`](src/shellinit.rs), which enumerates each enabled layer's
-fragments at *install* time and emits explicit `source` lines:
+`~/.zshrc` is a three-line loader. The real file is `~/.config/dotfiles/init.sh`, generated by [`shellinit.rs`](src/shellinit.rs), which enumerates each enabled layer's fragments at *install* time and emits explicit `source` lines:
 
 ```sh
 . "$DOTFILES_ROOT/layers/core/shell/10-env.sh"
@@ -106,19 +73,11 @@ if [ -n "${ZSH_VERSION:-}" ]; then
 fi
 ```
 
-Generated rather than globbed at runtime because zsh and bash disagree in ways
-that bite silently: zsh doesn't word-split unquoted variables, and it aborts on
-an unmatched glob — while the obvious guard for that, `setopt local_options
-null_glob`, reverts every `setopt` a sourced file performs. Three real bugs
-lived there. The trade-off: a **new** fragment file needs `dotfiles install`
-re-run; edits to existing ones are live.
+Generated rather than globbed at runtime because zsh and bash disagree in ways that bite silently: zsh doesn't word-split unquoted variables, and it aborts on an unmatched glob — while the obvious guard for that, `setopt local_options null_glob`, reverts every `setopt` a sourced file performs. Three real bugs lived there. The trade-off: a **new** fragment file needs `dotfiles install` re-run; edits to existing ones are live.
 
 ## Signing
 
-[`signing.rs`](src/signing.rs). One method, the machine's own ssh key, and no
-mode to choose: key present → sign, else don't, with `--no-signing` to opt out.
-Writes a generated include so `~/.gitconfig` stays static and a machine with no
-key gets a working git.
+[`signing.rs`](src/signing.rs). One method, the machine's own ssh key, and no mode to choose: key present → sign, else don't, with `--no-signing` to opt out. Writes a generated include so `~/.gitconfig` stays static and a machine with no key gets a working git.
 
 No private key material is handled anywhere in this codebase.
 
@@ -132,7 +91,7 @@ No private key material is handled anywhere in this codebase.
 
 ## What the tests assert
 
-`cargo test` — 35 tests, all against throwaway directories.
+`cargo test`, all against throwaway directories — never the real `$HOME`.
 
 | Area | Asserts |
 | --- | --- |
@@ -141,10 +100,11 @@ No private key material is handled anywhere in this codebase.
 | [`shellinit.rs`](src/shellinit.rs) | zsh fragments are guarded, no runtime globbing, shell metacharacters quoted |
 | [`brew.rs`](src/brew.rs) | trailing comments aren't package names, `PATH` is imported from `brew shellenv` |
 | [`skills.rs`](src/skills.rs) | `#` parses as a separator not a comment, discovery finds both repo layouts |
-| [`layer.rs`](src/layer.rs) | unique names, every layer has its directory, `core` can't be dropped |
+| [`layer.rs`](src/layer.rs) | unique names, every layer has its directory, `core` can't be dropped, the README example matches the struct |
+| [`mac_base.rs`](src/layers/mac_base.rs) | the newest CLT label is picked by version, not listing order |
+| [`signing.rs`](src/signing.rs) | `.pub` is appended, not substituted for an existing extension |
+| [`tmpdir.rs`](src/tmpdir.rs) | the temp dir is 0700, exclusive, and self-cleaning |
 
-CI additionally installs the core profile in a bare container, asserts a second
-run changes nothing, and asserts an ssh-signed commit verifies.
+CI additionally installs the core profile in a bare container, asserts a second run changes nothing, and asserts an ssh-signed commit verifies.
 
-Known gaps: no test runs a real install (they'd have to touch a real `$HOME`),
-and the GitHub upload path has never executed.
+Known gaps: no test runs a real install (they'd have to touch a real `$HOME`), and the GitHub upload path has never executed.

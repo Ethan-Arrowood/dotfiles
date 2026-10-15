@@ -173,6 +173,31 @@ pub fn resolve(
 mod tests {
     use super::*;
 
+    /// Catches the drift that actually happened: the `platforms` field was
+    /// replaced by `macos_only` and the README kept showing the old one.
+    /// Reads the struct rather than a hardcoded list, so adding a field fails
+    /// this until the example is updated.
+    #[test]
+    fn the_readme_example_shows_every_layer_field() {
+        let src = include_str!("layer.rs");
+        let readme = include_str!("../README.md");
+        let fields: Vec<&str> = src
+            .lines()
+            .skip_while(|l| !l.contains("pub struct Layer {"))
+            .skip(1)
+            .take_while(|l| !l.starts_with('}'))
+            .filter_map(|l| l.trim().strip_prefix("pub "))
+            .filter_map(|l| l.split(':').next())
+            .collect();
+        assert!(!fields.is_empty(), "could not parse Layer's fields");
+        for f in fields {
+            assert!(
+                readme.contains(&format!("{f}:")),
+                "README's `Adding a layer` example does not mention `{f}`"
+            );
+        }
+    }
+
     #[test]
     fn layer_names_are_unique() {
         let r = registry();
