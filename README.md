@@ -11,6 +11,12 @@ curl -fsSL https://raw.githubusercontent.com/Ethan-Arrowood/dotfiles/main/instal
 dotfiles install --profile mac-dev
 ```
 
+On a factory-fresh Mac that is genuinely the only command: the script installs
+the Xcode Command Line Tools itself (sudo will ask for your password once),
+then clones, downloads the binary and runs it. If that fails — no terminal for
+sudo, or MDM restrictions — it falls back to Apple's GUI installer and asks you
+to re-run.
+
 Always safe to run twice: a second run re-links nothing, writes no `defaults`
 that already match, and does not touch installed toolchains — CI asserts this.
 Add `--dry-run` to see the plan without touching anything, and `--update` to

@@ -47,12 +47,7 @@ fn xcode_clt(ctx: &Ctx) -> Result<()> {
         .is_ok();
 
     let listing = Cmd::new("softwareupdate").arg("-l").capture()?;
-    let label = listing
-        .combined()
-        .lines()
-        .filter(|l| l.contains("Label:") && l.contains("Command Line Tools"))
-        .filter_map(|l| l.split("Label:").nth(1).map(|s| s.trim().to_string()))
-        .next_back();
+    let label = newest_clt_label(&listing.combined());
 
     match label {
         Some(l) => {
@@ -74,6 +69,34 @@ fn xcode_clt(ctx: &Ctx) -> Result<()> {
         let _ = std::fs::remove_file(sentinel);
     }
     Ok(())
+}
+
+/// The highest-versioned "Command Line Tools" label in a `softwareupdate -l`
+/// listing.
+///
+/// The listing is NOT version-ordered -- a real run on macOS 26.6 offered
+/// 26.5, then 27.0, then 26.6, in that order -- so taking the last line picks
+/// an older release than is available. Sort by the trailing version instead.
+fn newest_clt_label(listing: &str) -> Option<String> {
+    listing
+        .lines()
+        .filter_map(|l| l.split("Label:").nth(1))
+        .map(str::trim)
+        .filter(|l| l.starts_with("Command Line Tools"))
+        .max_by_key(|l| version_key(l))
+        .map(str::to_string)
+}
+
+/// Numeric sort key from the version at the end of a label, e.g.
+/// "Command Line Tools for Xcode 27.0-27.0" -> [27, 0].
+fn version_key(label: &str) -> Vec<u32> {
+    label
+        .rsplit('-')
+        .next()
+        .unwrap_or("")
+        .split('.')
+        .map(|n| n.parse().unwrap_or(0))
+        .collect()
 }
 
 /// Only the settings worth losing an argument over. Anything cosmetic is left
@@ -322,4 +345,41 @@ fn prompt_line(question: &str) -> Option<String> {
     let mut line = String::new();
     std::io::BufReader::new(tty).read_line(&mut line).ok()?;
     Some(line)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verbatim from a real `softwareupdate -l` on macOS 26.6.2, which lists
+    /// 26.5, 27.0 and 26.6 in that order -- taking the last line gives 26.6.
+    const LISTING: &str = "\
+* Label: Safari27.0TahoeAuto-27.0
+* Label: Command Line Tools for Xcode 26.5-26.5
+* Label: Command Line Tools for Xcode 27.0-27.0
+* Label: Command Line Tools for Xcode 26.6-26.6
+* Label: macOS Tahoe 26.7.1-25G241
+";
+
+    #[test]
+    fn picks_the_highest_version_not_the_last_line() {
+        assert_eq!(
+            newest_clt_label(LISTING).as_deref(),
+            Some("Command Line Tools for Xcode 27.0-27.0")
+        );
+    }
+
+    #[test]
+    fn ignores_non_clt_labels_and_empty_listings() {
+        assert_eq!(
+            newest_clt_label("* Label: Safari27.0TahoeAuto-27.0\n"),
+            None
+        );
+        assert_eq!(newest_clt_label(""), None);
+    }
+
+    #[test]
+    fn version_key_sorts_numerically_not_lexically() {
+        assert!(version_key("x 9.0-9.0") < version_key("x 10.0-10.0"));
+    }
 }
