@@ -129,7 +129,7 @@ mod tests {
     /// with_extension would turn `my.key` into `my.pub`.
     #[test]
     fn pub_path_appends_rather_than_replaces_the_extension() {
-        let ctx = Ctx::new(std::env::temp_dir(), true, true).unwrap();
+        let ctx = Ctx::new(std::env::temp_dir()).unwrap();
         std::env::set_var("DOTFILES_SSH_KEY", "/tmp/my.key");
         let p = ssh_pub_path(&ctx);
         std::env::remove_var("DOTFILES_SSH_KEY");

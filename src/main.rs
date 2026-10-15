@@ -83,38 +83,30 @@ fn main() {
 
 fn real_main() -> Result<()> {
     let cli = Cli::parse();
-    let root = Ctx::find_root()?;
+
+    // One context for every command. The defaults are the safe ones -- do the
+    // work for real, ask before anything outward-facing -- and only `install`
+    // takes flags that change them.
+    let mut ctx = Ctx::new(Ctx::find_root()?)?;
 
     match cli.command {
         Command::Install(args) => {
-            let mut ctx = Ctx::new(root, args.dry_run, args.yes)?;
+            ctx.dry_run = args.dry_run;
+            ctx.assume_yes = args.yes;
             ctx.update = args.update;
             ctx.signing = !args.no_signing;
             install(&ctx, args)
         }
-        Command::List => {
-            let ctx = Ctx::new(root, true, false)?;
-            list(&ctx)
-        }
-        Command::Status => {
-            let ctx = Ctx::new(root, true, false)?;
-            status(&ctx)
-        }
-        Command::Link => {
-            let ctx = Ctx::new(root, false, false)?;
-            relink(&ctx)
-        }
+        Command::List => list(&ctx),
+        Command::Status => status(&ctx),
+        Command::Link => relink(&ctx),
         Command::Doctor => {
-            let ctx = Ctx::new(root, true, false)?;
             if !doctor::run(&ctx)? {
                 std::process::exit(1);
             }
             Ok(())
         }
-        Command::Github => {
-            let ctx = Ctx::new(root, false, false)?;
-            github::run(&ctx)
-        }
+        Command::Github => github::run(&ctx),
     }
 }
 

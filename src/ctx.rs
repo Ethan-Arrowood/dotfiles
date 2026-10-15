@@ -22,7 +22,9 @@ pub struct Ctx {
 }
 
 impl Ctx {
-    pub fn new(root: PathBuf, dry_run: bool, assume_yes: bool) -> Result<Self> {
+    /// Everything here is either a location or a safe default. The flags are
+    /// install-only and set by the caller.
+    pub fn new(root: PathBuf) -> Result<Self> {
         let home = dirs::home_dir().context("cannot determine home directory")?;
         let stamp = std::process::Command::new("date")
             .args(["+%Y%m%d-%H%M%S"])
@@ -44,8 +46,8 @@ impl Ctx {
             state_dir,
             home,
             root,
-            dry_run,
-            assume_yes,
+            dry_run: false,
+            assume_yes: false,
             update: false,
             signing: true,
         })

@@ -164,7 +164,8 @@ mod tests {
         let dir = PrivateTempDir::new("linktest").unwrap();
         let home = dir.join("home");
         fs::create_dir_all(&home).unwrap();
-        let mut ctx = Ctx::new(dir.join("repo"), false, true).unwrap();
+        let mut ctx = Ctx::new(dir.join("repo")).unwrap();
+        ctx.assume_yes = true;
         ctx.home = home.clone();
         ctx.backup_dir = home.join(".dotfiles-backup/test");
         ctx.state_dir = home.join(".config/dotfiles");

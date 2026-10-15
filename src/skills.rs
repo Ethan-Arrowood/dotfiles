@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn owner_directory_is_lowercased_to_match_existing_layout() {
-        let ctx = Ctx::new(std::env::temp_dir(), true, true).unwrap();
+        let ctx = Ctx::new(std::env::temp_dir()).unwrap();
         let p = checkout_path(&ctx, "Ethan-Arrowood", "skills");
         assert!(p.ends_with("ethan-arrowood/skills"), "{}", p.display());
     }

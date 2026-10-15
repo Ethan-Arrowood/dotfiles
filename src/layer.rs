@@ -208,12 +208,7 @@ mod tests {
 
     #[test]
     fn core_cannot_be_dropped() {
-        let ctx = Ctx::new(
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")),
-            true,
-            true,
-        )
-        .unwrap();
+        let ctx = Ctx::new(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))).unwrap();
         let err = match resolve(&ctx, "mac-dev", &[], &["core".to_string()]) {
             Ok(_) => panic!("dropping core must be refused"),
             Err(e) => e,

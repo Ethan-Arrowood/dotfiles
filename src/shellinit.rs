@@ -109,7 +109,7 @@ mod tests {
     use crate::layer;
 
     fn test_ctx(root: &Path) -> Ctx {
-        let mut c = Ctx::new(root.to_path_buf(), true, true).unwrap();
+        let mut c = Ctx::new(root.to_path_buf()).unwrap();
         c.root = root.to_path_buf();
         c
     }
