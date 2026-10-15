@@ -134,7 +134,7 @@ fn checkout_path(ctx: &Ctx, owner: &str, name: &str) -> PathBuf {
 
 /// Clone if absent, otherwise leave it alone -- these are working checkouts
 /// the user edits, so pulling could stomp on in-flight work.
-fn ensure_clone(ctx: &Ctx, owner: &str, name: &str) -> Result<Option<PathBuf>> {
+pub(crate) fn ensure_clone(ctx: &Ctx, owner: &str, name: &str) -> Result<Option<PathBuf>> {
     let dest = checkout_path(ctx, owner, name);
     let slug = format!("{owner}/{name}");
 
