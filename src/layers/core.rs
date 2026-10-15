@@ -18,7 +18,7 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
     ssh_config(ctx, &dir)?;
     ssh_key(ctx)?;
     ssh_agent(ctx)?;
-    signing::configure(ctx, signing::Mode::from_env())?;
+    signing::configure(ctx)?;
     login_shell(ctx)?;
     Ok(())
 }

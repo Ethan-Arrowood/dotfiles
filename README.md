@@ -96,7 +96,7 @@ a sane built-in.
 
 ```bash
 dotfiles install [--profile NAME] [--with LAYER] [--without LAYER] [--dry-run] [--yes]
-                 [--signing auto|ssh|off] [--update]
+                 [--no-signing] [--update]
 dotfiles list      # profiles and layers
 dotfiles status    # what this machine has installed, and where links point
 dotfiles link      # re-link $HOME files only, no packages
@@ -318,18 +318,15 @@ repo. Every upload asks first; nothing touches your account unattended.
 
 One method: **the machine's own ssh key**. The same key that pushes also signs.
 
-| `--signing` | Behavior |
-| --- | --- |
-| `auto` (default) | sign if this machine has an ssh key, else don't |
-| `ssh` | sign, and fail loudly if there is no key |
-| `off` | don't sign |
+There is no mode to choose — a machine either has a key or it does not. If it
+does, commits are signed; if not, `install` says so and tells you how to make
+one. `--no-signing` opts out, and exists for CI.
 
 Nothing is written into `~/.gitconfig`. The settings go in a generated include
 ([`signing.rs`](src/signing.rs)), so a machine with no key gets a working git
-rather than one that fails on every commit.
-
-Signing also writes `~/.ssh/allowed_signers`, without which git can create
-signatures but not verify its own.
+rather than one that fails on every commit. Signing also writes
+`~/.ssh/allowed_signers`, without which git can create signatures but not
+verify its own.
 
 **The catch:** GitHub keeps *two* lists — authentication keys and signing keys
 — and the same public key has to be uploaded to both. Pushing works with only

@@ -35,7 +35,7 @@ jobs:
       - name: install the core profile
         run: |
           export DOTFILES_ROOT="$PWD"
-          ./target/release/dotfiles install --profile core --signing off -y
+          ./target/release/dotfiles install --profile core --no-signing -y
       - name: the generated init must load in both shells
         run: |
           apt-get install -y -qq zsh
@@ -47,7 +47,7 @@ jobs:
           # Capture BOTH streams: the "backed up existing" marker goes to
           # stderr, so grepping stdout alone could not detect a non-idempotent
           # run at all.
-          ./target/release/dotfiles install --profile core --signing off -y >/tmp/second.log 2>&1
+          ./target/release/dotfiles install --profile core --no-signing -y >/tmp/second.log 2>&1
           cat /tmp/second.log
           grep -q "already linked" /tmp/second.log
           # Asserting the absence of change is the part that actually tests it.
@@ -70,7 +70,7 @@ jobs:
         run: |
           export DOTFILES_ROOT="$PWD"
           ssh-keygen -q -t ed25519 -N "" -C "ci@example.invalid" -f ~/.ssh/id_ed25519
-          ./target/release/dotfiles install --profile core --signing ssh -y
+          ./target/release/dotfiles install --profile core -y
           mkdir -p /tmp/r && cd /tmp/r && git init -q
           git commit -q --allow-empty -m "signing probe"
           test "$(git log -1 --format=%G?)" = "G"

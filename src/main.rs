@@ -69,9 +69,9 @@ struct InstallArgs {
     /// Refresh already-installed toolchains (rustup update, uv self update)
     #[arg(long)]
     update: bool,
-    /// Commit signing mode [default: from $DOTFILES_SIGNING, else auto]
-    #[arg(long, value_name = "auto|ssh|off")]
-    signing: Option<String>,
+    /// Do not configure commit signing
+    #[arg(long)]
+    no_signing: bool,
 }
 
 fn main() {
@@ -87,7 +87,9 @@ fn real_main() -> Result<()> {
 
     match cli.command {
         Command::Install(args) => {
-            let ctx = Ctx::with_update(root, args.dry_run, args.yes, args.update)?;
+            let mut ctx = Ctx::new(root, args.dry_run, args.yes)?;
+            ctx.update = args.update;
+            ctx.signing = !args.no_signing;
             install(&ctx, args)
         }
         Command::List => {
@@ -129,12 +131,6 @@ fn install(ctx: &Ctx, args: InstallArgs) -> Result<()> {
             p.to_string()
         }
     };
-
-    if let Some(mode) = &args.signing {
-        // Validated here so a typo fails before anything is touched.
-        let parsed: signing::Mode = mode.parse().map_err(|e: String| anyhow::anyhow!(e))?;
-        std::env::set_var("DOTFILES_SIGNING", parsed.as_str());
-    }
 
     let selected = layer::resolve(ctx, &profile, &args.with, &args.without)?;
 

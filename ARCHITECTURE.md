@@ -109,9 +109,10 @@ re-run; edits to existing ones are live.
 
 ## Signing
 
-[`signing.rs`](src/signing.rs). One method, the machine's own ssh key. Resolve
-is four lines: key present → sign, else don't. Writes a generated include so
-`~/.gitconfig` stays static and a machine with no key gets a working git.
+[`signing.rs`](src/signing.rs). One method, the machine's own ssh key, and no
+mode to choose: key present → sign, else don't, with `--no-signing` to opt out.
+Writes a generated include so `~/.gitconfig` stays static and a machine with no
+key gets a working git.
 
 No private key material is handled anywhere in this codebase.
 
