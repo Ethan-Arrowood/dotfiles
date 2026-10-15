@@ -29,11 +29,17 @@ for tool in curl tar; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
 done
 
-if ! command -v git >/dev/null 2>&1; then
+# `command -v git` is not enough on macOS: /usr/bin/git exists as a stub even
+# with no Command Line Tools installed, so the check passes and the clone then
+# fails with a GUI prompt. Actually running git is the only real test.
+if ! git --version >/dev/null 2>&1; then
   if [ "$(uname -s)" = "Darwin" ]; then
-    say "git is missing; triggering the Xcode Command Line Tools installer"
+    say "git is not usable yet; opening the Xcode Command Line Tools installer"
     xcode-select --install 2>/dev/null || true
-    die "finish that install, then re-run this script"
+    say ""
+    say "Command Line Tools are a one-time ~5 minute install. When it finishes,"
+    say "run this same command again and it will carry on."
+    exit 1
   fi
   die "git is required"
 fi

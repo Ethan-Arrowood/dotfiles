@@ -39,7 +39,7 @@ impl Ctx {
         // environment variables in them -- so honoring XDG here would silently
         // stop signing and delta from ever applying on a machine that sets it.
         // Tests override this field directly.
-        let state_dir = home.join(".config").join("dotfiles");
+        let state_dir = Self::state_dir_for(&home);
 
         Ok(Self {
             backup_dir: home.join(".dotfiles-backup").join(stamp),
@@ -82,13 +82,13 @@ impl Ctx {
         if let Ok(cwd) = std::env::current_dir() {
             candidates.push(cwd);
         }
-        // Where install.sh clones it. The binary lives in ~/.local/bin, which
-        // is nowhere near the repo, so without this `dotfiles` only works from
-        // a shell started after a successful install (which exports
-        // DOTFILES_ROOT) -- and bash users never get that.
-        if let Some(home) = dirs::home_dir() {
-            candidates.push(home.join("dev/dotfiles"));
-            candidates.push(home.join("dev/ethan-arrowood/dotfiles"));
+        // The root recorded by the last install. install.sh exports
+        // DOTFILES_ROOT before handing over, so a first run never needs this;
+        // it is for later invocations from a shell that does not have the
+        // variable set -- a bash shell, say, since no bashrc ships here.
+        // Reading what was recorded beats guessing at likely paths.
+        if let Some(recorded) = recorded_root() {
+            candidates.push(recorded);
         }
 
         for c in candidates {
@@ -99,6 +99,11 @@ impl Ctx {
         bail!("cannot find the dotfiles repo. Set DOTFILES_ROOT, or run from inside the checkout.")
     }
 
+    /// Where the generated shell init lives, without needing a full Ctx.
+    fn state_dir_for(home: &Path) -> PathBuf {
+        home.join(".config").join("dotfiles")
+    }
+
     /// `~`-shortened path for display.
     pub fn pretty(&self, p: &Path) -> String {
         match p.strip_prefix(&self.home) {
@@ -106,4 +111,17 @@ impl Ctx {
             Err(_) => p.display().to_string(),
         }
     }
+}
+
+/// The repo path the last `dotfiles install` recorded, read back out of the
+/// shell init it generated. That file is the single source of truth for where
+/// this machine's checkout is.
+fn recorded_root() -> Option<PathBuf> {
+    let home = dirs::home_dir()?;
+    let text = std::fs::read_to_string(Ctx::state_dir_for(&home).join("init.sh")).ok()?;
+    text.lines()
+        .find_map(|l| l.strip_prefix("export DOTFILES_ROOT="))
+        .map(|v| v.trim().trim_matches('\'').trim_matches('"'))
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
 }

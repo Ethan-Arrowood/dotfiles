@@ -32,6 +32,12 @@ writing macOS defaults) have an install function with real content.
 `$HOME`, `dry_run`, `assume_yes`, `update`, and where backups go. If you want
 to know whether something can write, look for `ctx.dry_run`.
 
+Finding the repo ([`find_root`](src/ctx.rs)) looks for a directory containing
+`layers/` — the git checkout is incidental. In order: `$DOTFILES_ROOT`, then
+the root recorded in the generated `~/.config/dotfiles/init.sh`, then relative
+to the binary, then the cwd. `install.sh` exports the variable before handing
+over, so a first run never needs the fallbacks.
+
 ## Everything that touches $HOME
 
 Only four places. Every one goes through
