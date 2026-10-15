@@ -22,21 +22,16 @@ fn xcode_clt(ctx: &Ctx) -> Result<()> {
     if !ctx.dry_run && !sys::allow_global_changes() {
         return Ok(());
     }
-    let installed = Cmd::new("xcode-select")
+    // Present is the whole bar. CLT versions track the OS release and are
+    // Software Update's job, not this tool's.
+    if Cmd::new("xcode-select")
         .arg("-p")
         .capture()
         .map(|c| c.ok)
-        .unwrap_or(false);
-
-    if installed {
-        // Present is the normal bar. Checking for a newer release costs a
-        // network scan of ~15s, so it only happens when asked -- same rule as
-        // `rustup update` and `uv self update`.
-        if !ctx.update {
-            ui::skip("xcode command line tools");
-            return Ok(());
-        }
-        return update_clt(ctx);
+        .unwrap_or(false)
+    {
+        ui::skip("xcode command line tools");
+        return Ok(());
     }
     if ctx.dry_run {
         ui::dry("install xcode command line tools");
@@ -67,64 +62,6 @@ fn xcode_clt(ctx: &Ctx) -> Result<()> {
         }
     }
     Ok(())
-}
-
-/// Upgrade an installed CLT if `softwareupdate` offers a newer one.
-fn update_clt(ctx: &Ctx) -> Result<()> {
-    let Some(current) = installed_clt_version() else {
-        ui::skip("xcode command line tools (installed; version not readable)");
-        return Ok(());
-    };
-    if ctx.dry_run {
-        ui::dry("check for a newer xcode command line tools");
-        return Ok(());
-    }
-
-    ui::step("checking for a newer command line tools (scans software update)");
-    let listing = with_clt_sentinel(|| Cmd::new("softwareupdate").arg("-l").capture())?;
-    let Some(label) = newest_clt_label(&listing.combined()) else {
-        ui::skip(&format!(
-            "command line tools {current:?} is the newest offered"
-        ));
-        return Ok(());
-    };
-
-    // Compare on the leading components only: the label carries "27.0" while
-    // pkgutil reports "26.6.0.0.1781586589".
-    let available = version_key(&label);
-    let n = current.len().min(available.len());
-    if available[..n] <= current[..n] {
-        ui::skip("xcode command line tools (up to date)");
-        return Ok(());
-    }
-
-    ui::step(&format!("updating to {label}"));
-    if !sys::as_root(
-        ctx,
-        &format!("softwareupdate --install {label}"),
-        "softwareupdate",
-        &["--install", &label, "--verbose"],
-    )? {
-        ui::warn("command line tools update failed; leaving the installed version alone");
-    }
-    Ok(())
-}
-
-/// The installed CLT version, from the package receipt.
-fn installed_clt_version() -> Option<Vec<u32>> {
-    let out = Cmd::new("pkgutil")
-        .arg("--pkg-info=com.apple.pkg.CLTools_Executables")
-        .capture()
-        .ok()?;
-    if !out.ok {
-        return None;
-    }
-    let v = out
-        .stdout
-        .lines()
-        .find_map(|l| l.strip_prefix("version:"))?
-        .trim();
-    Some(v.split('.').map(|n| n.parse().unwrap_or(0)).collect())
 }
 
 /// `softwareupdate` only lists CLT while this sentinel exists. Undocumented,
@@ -448,25 +385,6 @@ mod tests {
             None
         );
         assert_eq!(newest_clt_label(""), None);
-    }
-
-    /// pkgutil reports "26.6.0.0.1781586589" while the label carries "27.0",
-    /// so only the leading components can be compared.
-    #[test]
-    fn installed_is_compared_against_the_label_on_leading_components() {
-        let installed: Vec<u32> = "26.6.0.0.1781586589"
-            .split('.')
-            .map(|n| n.parse().unwrap_or(0))
-            .collect();
-        let newer = version_key("Command Line Tools for Xcode 27.0-27.0");
-        let same = version_key("Command Line Tools for Xcode 26.6-26.6");
-        let n = |a: &Vec<u32>| installed.len().min(a.len());
-
-        assert!(newer[..n(&newer)] > installed[..n(&newer)], "27.0 > 26.6");
-        assert!(
-            same[..n(&same)] <= installed[..n(&same)],
-            "26.6 is not newer"
-        );
     }
 
     #[test]

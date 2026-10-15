@@ -20,9 +20,9 @@ to re-run.
 Always safe to run twice: a second run re-links nothing, writes no `defaults`
 that already match, and does not touch installed toolchains — CI asserts this.
 Add `--dry-run` to see the plan without touching anything, and `--update` to
-refresh what is already installed — rustup, uv, and the Xcode Command Line
-Tools. None of that happens implicitly: a plain run checks that things are
-*present*, not that they are current.
+refresh installed toolchains (rustup, uv), which is otherwise never implicit.
+The Xcode Command Line Tools are installed if missing and then left alone —
+they track the OS release, so updating them belongs to Software Update.
 
 Auditing rather than using it? [ARCHITECTURE.md](ARCHITECTURE.md) walks the
 code: the install loop, every path that touches `$HOME`, the three dangerous
