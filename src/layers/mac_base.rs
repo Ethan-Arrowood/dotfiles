@@ -3,8 +3,9 @@
 use crate::ctx::Ctx;
 use crate::layer::Layer;
 use crate::sys::{self, Cmd};
-use crate::{brew, link, ui};
-use anyhow::Result;
+use crate::{brew, link, skills, ui};
+use anyhow::{Context, Result};
+use std::path::Path;
 
 pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
     xcode_clt(ctx)?;
@@ -12,7 +13,7 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
     ui::step("installing base packages");
     brew::bundle(ctx, &layer.path(ctx).join("Brewfile"))?;
     ui::step("applying macOS defaults");
-    macos_defaults(ctx)?;
+    macos_defaults(ctx, layer)?;
     git_delta(ctx)?;
     computer_name(ctx)?;
     Ok(())
@@ -108,99 +109,86 @@ fn version_key(label: &str) -> Vec<u32> {
         .collect()
 }
 
-/// Only the settings worth losing an argument over. Anything cosmetic is left
-/// to System Settings, where it is easier to change your mind.
+/// One line of the Defaultsfile.
+#[derive(Debug, PartialEq)]
+struct Setting {
+    domain: String,
+    key: String,
+    kind: String,
+    value: String,
+}
+
+const KINDS: [&str; 4] = ["-bool", "-int", "-float", "-string"];
+
+/// Parse a Defaultsfile: `domain key type value`, `#` comments. A leading
+/// `~/` in the value expands to $HOME. Malformed lines are reported with
+/// their line number rather than skipped silently.
+fn parse_defaults(text: &str, home: &Path) -> (Vec<Setting>, Vec<String>) {
+    let mut out = Vec::new();
+    let mut problems = Vec::new();
+    for (n, raw) in text.lines().enumerate() {
+        let line = skills::strip_comment(raw).trim();
+        if line.is_empty() {
+            continue;
+        }
+        let f: Vec<&str> = line.split_whitespace().collect();
+        if f.len() < 4 || !KINDS.contains(&f[2]) {
+            problems.push(format!(
+                "line {}: expected `domain key {} value`: {line}",
+                n + 1,
+                KINDS.join("|")
+            ));
+            continue;
+        }
+        let value = f[3..].join(" ");
+        let value = match value.strip_prefix("~/") {
+            Some(rest) => home.join(rest).to_string_lossy().into_owned(),
+            None => value,
+        };
+        out.push(Setting {
+            domain: f[0].into(),
+            key: f[1].into(),
+            kind: f[2].into(),
+            value,
+        });
+    }
+    (out, problems)
+}
+
+/// Apply `layers/mac-base/Defaultsfile`.
 ///
 /// Reads each key before writing it: writing unconditionally meant every run
 /// ended in `killall Finder Dock SystemUIServer`, restarting the Dock and
 /// closing open Finder windows even when nothing had changed.
-fn macos_defaults(ctx: &Ctx) -> Result<()> {
+fn macos_defaults(ctx: &Ctx, layer: &Layer) -> Result<()> {
     if !ctx.dry_run && !sys::allow_global_changes() {
         return Ok(());
     }
-    let home_downloads = ctx.home.join("Downloads");
-    let mut settings: Vec<(&str, &str, &str, String)> = vec![
-        (
-            "NSGlobalDomain",
-            "ApplePressAndHoldEnabled",
-            "-bool",
-            "false".into(),
-        ),
-        ("NSGlobalDomain", "KeyRepeat", "-int", "2".into()),
-        ("NSGlobalDomain", "InitialKeyRepeat", "-int", "15".into()),
-        (
-            "NSGlobalDomain",
-            "AppleShowAllExtensions",
-            "-bool",
-            "true".into(),
-        ),
-        (
-            "NSGlobalDomain",
-            "NSDocumentSaveNewDocumentsToCloud",
-            "-bool",
-            "false".into(),
-        ),
-        (
-            "com.apple.finder",
-            "AppleShowAllFiles",
-            "-bool",
-            "true".into(),
-        ),
-        ("com.apple.finder", "ShowPathbar", "-bool", "true".into()),
-        ("com.apple.finder", "ShowStatusBar", "-bool", "true".into()),
-        (
-            "com.apple.finder",
-            "FXPreferredViewStyle",
-            "-string",
-            "Nlsv".into(),
-        ),
-        (
-            "com.apple.finder",
-            "_FXSortFoldersFirst",
-            "-bool",
-            "true".into(),
-        ),
-        (
-            "com.apple.finder",
-            "FXDefaultSearchScope",
-            "-string",
-            "SCcf".into(),
-        ),
-        (
-            "com.apple.desktopservices",
-            "DSDontWriteNetworkStores",
-            "-bool",
-            "true".into(),
-        ),
-        (
-            "com.apple.screencapture",
-            "disable-shadow",
-            "-bool",
-            "true".into(),
-        ),
-        ("com.apple.dock", "show-recents", "-bool", "false".into()),
-        ("com.apple.dock", "autohide-delay", "-float", "0".into()),
-    ];
-    settings.push((
-        "com.apple.screencapture",
-        "location",
-        "-string",
-        home_downloads.to_string_lossy().into_owned(),
-    ));
-
-    let mut changed = Vec::new();
-    for (domain, key, kind, value) in &settings {
-        if current_default(domain, key).as_deref() == Some(normalized(kind, value).as_str()) {
-            continue;
-        }
-        changed.push(format!("{domain} {key}"));
-        Cmd::new("defaults")
-            .args(["write", domain, key, kind])
-            .arg(value.clone())
-            .run(ctx, &format!("defaults write {domain} {key} {value}"))?;
+    let path = layer.path(ctx).join("Defaultsfile");
+    let text =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    let (settings, problems) = parse_defaults(&text, &ctx.home);
+    for p in &problems {
+        ui::warn(&format!("Defaultsfile: {p}"));
     }
 
-    if changed.is_empty() {
+    let mut changed = 0;
+    for s in &settings {
+        if current_default(&s.domain, &s.key).as_deref()
+            == Some(normalized(&s.kind, &s.value).as_str())
+        {
+            continue;
+        }
+        changed += 1;
+        Cmd::new("defaults")
+            .args(["write", &s.domain, &s.key, &s.kind, &s.value])
+            .run(
+                ctx,
+                &format!("defaults write {} {} {}", s.domain, s.key, s.value),
+            )?;
+    }
+
+    if changed == 0 {
         ui::skip("macOS defaults already set");
         return Ok(());
     }
@@ -210,9 +198,9 @@ fn macos_defaults(ctx: &Ctx) -> Result<()> {
             let _ = Cmd::new("killall").arg(app).capture();
         }
         ui::ok(&format!(
-            "{} default(s) changed; restarted Finder/Dock",
-            changed.len()
+            "{changed} default(s) changed; restarted Finder/Dock"
         ));
+        ui::detail("trackpad, mouse, appearance and keyboard changes apply at next login");
     }
     Ok(())
 }
@@ -359,6 +347,38 @@ fn prompt_line(question: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_shipped_defaultsfile_parses_cleanly() {
+        let text = include_str!("../../layers/mac-base/Defaultsfile");
+        let (settings, problems) = parse_defaults(text, Path::new("/home/me"));
+        assert!(problems.is_empty(), "{problems:?}");
+        assert!(settings.len() > 30);
+        let loc = settings.iter().find(|s| s.key == "location").unwrap();
+        assert_eq!(loc.value, "/home/me/Downloads");
+    }
+
+    #[test]
+    fn defaults_parser_strips_comments_and_reports_bad_lines() {
+        let (s, p) = parse_defaults(
+            "# heading\n\
+             com.apple.dock  tilesize  -float  64   # note\n\
+             com.apple.dock  tilesize  64\n\
+             NSGlobalDomain  AppleInterfaceStyle  -str  Dark\n",
+            Path::new("/h"),
+        );
+        assert_eq!(
+            s,
+            vec![Setting {
+                domain: "com.apple.dock".into(),
+                key: "tilesize".into(),
+                kind: "-float".into(),
+                value: "64".into(),
+            }]
+        );
+        assert_eq!(p.len(), 2, "{p:?}");
+        assert!(p[0].starts_with("line 3"), "{p:?}");
+    }
 
     /// Verbatim from a real `softwareupdate -l` on macOS 26.6.2, which lists
     /// 26.5, 27.0 and 26.6 in that order -- taking the last line gives 26.6.

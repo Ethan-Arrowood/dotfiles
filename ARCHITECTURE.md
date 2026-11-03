@@ -17,6 +17,7 @@ for l in &selected {
     claude::link_rules(ctx, l)?;             // claude/rules → ~/.claude/rules
     skills::install(ctx, l)?;                // Skillfile    → clone + symlink
 }
+dock::apply(ctx, &selected)?;                // every Dockfile → the Dock
 shellinit::write(ctx, &profile, &selected)?; // → ~/.config/dotfiles/init.sh
 ```
 
@@ -55,7 +56,7 @@ Seven tests in that file cover exactly these cases, against a throwaway `$HOME`.
 Everything that escapes `$HOME` is behind [`sys::allow_global_changes()`](src/sys.rs):
 
 1. **Package installs** — `brew` ([`brew.rs`](src/brew.rs)) and `sys_install`, which escalates to root. Guarded *inside* `sys_install` so no caller can forget.
-2. **macOS system state** — `defaults write`, `scutil --set`, Xcode CLT ([`mac_base.rs`](src/layers/mac_base.rs)).
+2. **macOS system state** — `defaults write` from [`Defaultsfile`](layers/mac-base/Defaultsfile), `scutil --set`, Xcode CLT ([`mac_base.rs`](src/layers/mac_base.rs)), and the Dock from each layer's `Dockfile` ([`dock.rs`](src/dock.rs)).
 3. **Account state** — `chsh` and `ssh-add --apple-use-keychain` ([`core.rs`](src/layers/core.rs)). The second looks `$HOME`-scoped but writes the real login Keychain.
 
 The guard compares `$HOME` against the account's home from `dscl`/`getent`. A mismatch means a test harness, so global changes are skipped. **It fails closed** — if it cannot determine the real home it blocks rather than allows. `DOTFILES_ALLOW_SANDBOXED_HOME=1` overrides. CI asserts it fires.
@@ -101,7 +102,8 @@ No private key material is handled anywhere in this codebase.
 | [`brew.rs`](src/brew.rs) | trailing comments aren't package names, `PATH` is imported from `brew shellenv` |
 | [`skills.rs`](src/skills.rs) | `#` parses as a separator not a comment, discovery finds both repo layouts |
 | [`layer.rs`](src/layer.rs) | unique names, every layer has its directory, `core` can't be dropped, the README example matches the struct |
-| [`mac_base.rs`](src/layers/mac_base.rs) | the newest CLT label is picked by version, not listing order |
+| [`mac_base.rs`](src/layers/mac_base.rs) | the newest CLT label is picked by version, not listing order; the shipped `Defaultsfile` parses cleanly |
+| [`dock.rs`](src/dock.rs) | paths with spaces, flags after the path, paths read back out of the Dock's plist |
 | [`signing.rs`](src/signing.rs) | `.pub` is appended, not substituted for an existing extension |
 | [`tmpdir.rs`](src/tmpdir.rs) | the temp dir is 0700, exclusive, and self-cleaning |
 

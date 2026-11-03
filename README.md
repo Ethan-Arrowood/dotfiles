@@ -68,7 +68,7 @@ dotfiles install --profile core --with mac-apps                # build your own
 | Layer | Platform | Contents |
 | --- | --- | --- |
 | `core` | any | zsh, git, ssh, commit signing, aliases, functions |
-| `mac-base` | macOS | Xcode CLT, Homebrew, CLI tools, macOS defaults, computer name |
+| `mac-base` | macOS | Xcode CLT, Homebrew, CLI tools, macOS defaults, Dock, computer name |
 | `mac-langs` | macOS | Node (fnm), Rust (rustup), Python (uv), C/C++, Java |
 | `mac-apps` | macOS | Chrome, VS Code, Claude, Ghostty, Dashlane CLI |
 | `mac-apps-extra` | macOS | Slack, Zoom, Spotify, Discord, Podman, DaisyDisk |
@@ -152,6 +152,10 @@ Position in that list is the install order. Then create `layers/my-thing/` for i
 Helpers available: `ui::{head,step,ok,skip,warn,detail}`, `link::{link_file, link_home_dir,write_file}`, `brew::bundle`, `sys::{has,which,is_macos, is_container,allow_global_changes}`.
 
 `Brewfile`s are a plain list, not `brew bundle` syntax — `formula <name>`, `cask <name>`, `tap <name>`, one per line, `#` comments allowed. A cask that has been renamed or pulled warns and the run continues.
+
+macOS settings live in [`layers/mac-base/Defaultsfile`](layers/mac-base/Defaultsfile), one `domain key type value` per line. Each key is read first and only written when it differs.
+
+A `Dockfile` lists Dock items, one path per line, optionally followed by `dockutil` flags. Every selected layer's `Dockfile` is combined in layer order and the Dock is set to exactly that, after all layers have installed, so Chrome (from [`mac-apps`](layers/mac-apps/Dockfile)) joins mac-base's [items](layers/mac-base/Dockfile) only on a machine that has it.
 
 ## Claude Code config
 

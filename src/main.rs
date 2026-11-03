@@ -3,6 +3,7 @@
 mod brew;
 mod claude;
 mod ctx;
+mod dock;
 mod doctor;
 mod github;
 mod layer;
@@ -167,6 +168,7 @@ fn install(ctx: &Ctx, args: InstallArgs) -> Result<()> {
         claude::link_rules(ctx, l)?;
         skills::install(ctx, l)?;
     }
+    dock::apply(ctx, &selected)?;
 
     ui::head("Shell init");
     shellinit::write(ctx, &profile, &selected)?;

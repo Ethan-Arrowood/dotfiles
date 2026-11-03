@@ -191,8 +191,5 @@ pub fn run(ctx: &Ctx) -> Result<bool> {
 }
 
 fn shellexpand_home(ctx: &Ctx, p: &str) -> String {
-    match p.strip_prefix("~/") {
-        Some(rest) => ctx.home.join(rest).display().to_string(),
-        None => p.to_string(),
-    }
+    ctx.expand(p).display().to_string()
 }

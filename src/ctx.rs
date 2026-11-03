@@ -104,6 +104,14 @@ impl Ctx {
         home.join(".config").join("dotfiles")
     }
 
+    /// Expand a leading `~/` against $HOME.
+    pub fn expand(&self, p: &str) -> PathBuf {
+        match p.strip_prefix("~/") {
+            Some(rest) => self.home.join(rest),
+            None => PathBuf::from(p),
+        }
+    }
+
     /// `~`-shortened path for display.
     pub fn pretty(&self, p: &Path) -> String {
         match p.strip_prefix(&self.home) {

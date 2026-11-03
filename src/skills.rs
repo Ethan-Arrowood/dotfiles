@@ -53,7 +53,7 @@ impl Entry {
 /// Strip a trailing `#` comment without eating the `#` that separates a repo
 /// from a skill name. A `#` only starts a comment at the start of a line or
 /// after whitespace, so `skill a/b#c  # note` keeps `skill a/b#c`.
-fn strip_comment(line: &str) -> &str {
+pub(crate) fn strip_comment(line: &str) -> &str {
     let bytes = line.as_bytes();
     for (i, &c) in bytes.iter().enumerate() {
         if c == b'#' && (i == 0 || bytes[i - 1].is_ascii_whitespace()) {

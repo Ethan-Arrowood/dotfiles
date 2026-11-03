@@ -12,6 +12,7 @@ formula eza                     # modern ls
 formula tree
 formula wget
 formula watch
+formula dockutil                # sets the Dock from Dockfiles
 formula htop
 formula tmux
 formula mkcert                  # local TLS certs
