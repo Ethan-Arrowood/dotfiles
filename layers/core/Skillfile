@@ -4,5 +4,7 @@
 #
 #   repo  <owner>/<repo>            every skill in the repo
 #   skill <owner>/<repo>#<skill>    just that one
+#   rules <owner>/<repo>            its rules/*.md -> ~/.claude/rules/
 
 repo Ethan-Arrowood/skills
+rules Ethan-Arrowood/skills

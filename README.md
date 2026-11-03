@@ -159,14 +159,14 @@ A `Dockfile` lists Dock items, one path per line, optionally followed by `dockut
 
 ## Claude Code config
 
-Layers contribute **rule files**, not a `CLAUDE.md`. Everything in `~/.claude/rules/*.md` loads every session, so the repo can own whole topic files while `~/.claude/CLAUDE.md` stays untracked and machine-specific:
+Global instructions are **rule files**, not a `CLAUDE.md`. Everything in `~/.claude/rules/*.md` loads every session, so a repo can own whole topic files while `~/.claude/CLAUDE.md` stays untracked and machine-specific:
 
 ```
-~/.claude/rules/general.md   -> symlink into this repo  (tracked, shared)
+~/.claude/rules/general.md   -> symlink into Ethan-Arrowood/skills  (tracked, shared)
 ~/.claude/CLAUDE.md          -> machine-local, untracked
 ```
 
-A layer opts in by shipping `claude/rules/*.md`; those get symlinked into `~/.claude/rules/`. Nothing merges markdown sections, so a hand edit to `CLAUDE.md` is never clobbered by a reinstall.
+They live in the [skills repo](https://github.com/Ethan-Arrowood/skills/tree/main/rules), beside the skills, and a `rules <owner>/<repo>` line in a [Skillfile](layers/core/Skillfile) links that repo's `rules/*.md` into `~/.claude/rules/`. It is a separate line from `repo` so an org skills repo that grows a `rules/` directory cannot start loading into every session unasked. Nothing merges markdown sections, so a hand edit to `CLAUDE.md` is never clobbered by a reinstall.
 
 New or changed rule files load at the **start of the next session** — a rules directory that did not exist when a session started is not watched.
 
@@ -181,11 +181,13 @@ A layer declares what it wants in a `Skillfile`, same format as a `Brewfile`:
 ```
 repo  <owner>/<repo>            every skill in the repo
 skill <owner>/<repo>#<skill>    just that one
+rules <owner>/<repo>            its rules/*.md -> ~/.claude/rules/
 ```
 
 ```
 # layers/core/Skillfile
 repo Ethan-Arrowood/skills
+rules Ethan-Arrowood/skills
 
 # layers/work-harper/Skillfile
 repo harperfast/skills

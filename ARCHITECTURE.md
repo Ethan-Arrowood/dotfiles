@@ -14,14 +14,13 @@ A layer is a name plus a directory of files. [`layer.rs`](src/layer.rs) holds th
 for l in &selected {
     (l.install)(ctx, l)?;                   // layer-specific: brew, toolchains…
     link::link_home_dir(ctx, &l.path(ctx))?; // home/*       → $HOME
-    claude::link_rules(ctx, l)?;             // claude/rules → ~/.claude/rules
-    skills::install(ctx, l)?;                // Skillfile    → clone + symlink
+    skills::install(ctx, l)?;                // Skillfile    → clone + symlink skills, rules
 }
 dock::apply(ctx, &selected)?;                // every Dockfile → the Dock
 shellinit::write(ctx, &profile, &selected)?; // → ~/.config/dotfiles/init.sh
 ```
 
-The last three are why a layer usually needs **no code** — it opts in by shipping files. Only layers doing something unusual (installing Homebrew, writing macOS defaults) have an install function with real content.
+Everything except `(l.install)` is why a layer usually needs **no code** — it opts in by shipping files. Only layers doing something unusual (installing Homebrew, writing macOS defaults) have an install function with real content.
 
 `Ctx` ([`ctx.rs`](src/ctx.rs)) is passed everywhere and holds: repo root, real `$HOME`, where backups go, and the install-only flags `dry_run`, `assume_yes`, `update` and `signing`. If you want to know whether something can write, look for `ctx.dry_run`. Only `install` sets those flags — every other command takes the defaults.
 
@@ -35,7 +34,7 @@ Only four places. Every one goes through [`link::link_file`](src/link.rs) except
 | --- | --- | --- |
 | `home/*` → `$HOME/*` | `.zshrc`, `.gitconfig`, … | [`link.rs`](src/link.rs) |
 | `ssh/*.conf` → `~/.ssh/config.d/` | plus one `Include` line prepended to `~/.ssh/config` | [`core.rs`](src/layers/core.rs) |
-| `claude/rules/*.md` → `~/.claude/rules/` | | [`claude.rs`](src/claude.rs) |
+| `rules/*.md` → `~/.claude/rules/` | from a Skillfile `rules` repo | [`claude.rs`](src/claude.rs) |
 | Skill dirs → `~/.claude/skills/` | symlinks into the cloned repo | [`skills.rs`](src/skills.rs) |
 
 Plus two **generated** files (written, not linked): `~/.config/dotfiles/init.sh` ([`shellinit.rs`](src/shellinit.rs)) and `~/.config/dotfiles/gitconfig.signing` ([`signing.rs`](src/signing.rs)).

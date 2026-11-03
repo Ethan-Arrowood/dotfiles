@@ -1,4 +1,4 @@
-//! Claude Code configuration contributed by layers.
+//! Claude Code rule files, from a `rules <owner>/<repo>` Skillfile entry.
 //!
 //! Rule files, not CLAUDE.md. `~/.claude/rules/*.md` all load every session,
 //! so the repo can own whole topic files while `~/.claude/CLAUDE.md` stays
@@ -9,14 +9,14 @@
 //! on the desktop. Everywhere else it follows the link normally.
 
 use crate::ctx::Ctx;
-use crate::layer::Layer;
 use crate::{link, ui};
 use anyhow::Result;
+use std::path::Path;
 
-/// Link `<layer>/claude/rules/*.md` into `~/.claude/rules/`.
-pub fn link_rules(ctx: &Ctx, layer: &Layer) -> Result<()> {
-    let src_dir = layer.path(ctx).join("claude/rules");
+/// Link `<src_dir>/*.md` into `~/.claude/rules/`.
+pub fn link_rules(ctx: &Ctx, src_dir: &Path) -> Result<()> {
     if !src_dir.is_dir() {
+        ui::warn(&format!("no rules directory at {}", ctx.pretty(src_dir)));
         return Ok(());
     }
     let dest_dir = ctx.home.join(".claude/rules");
@@ -24,7 +24,7 @@ pub fn link_rules(ctx: &Ctx, layer: &Layer) -> Result<()> {
         std::fs::create_dir_all(&dest_dir)?;
     }
 
-    let mut files: Vec<_> = std::fs::read_dir(&src_dir)?
+    let mut files: Vec<_> = std::fs::read_dir(src_dir)?
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| p.is_file() && p.extension().map(|x| x == "md").unwrap_or(false))

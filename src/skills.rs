@@ -11,6 +11,8 @@
 //!
 //!   repo  <owner>/<name>              clone it, link every skill it contains
 //!   skill <owner>/<name>#<skill>      clone it, link just that one skill
+//!   rules <owner>/<name>              clone it, link its rules/*.md into
+//!                                     ~/.claude/rules/
 //!
 //! Repos are cloned to `$DOTFILES_SRC_DIR/<owner>/<name>`, default `~/dev`,
 //! matching the existing `~/dev/<owner>/<repo>` layout.
@@ -18,7 +20,7 @@
 use crate::ctx::Ctx;
 use crate::layer::Layer;
 use crate::sys::{self, Cmd};
-use crate::{link, ui};
+use crate::{claude, link, ui};
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
@@ -32,17 +34,25 @@ pub enum Entry {
         name: String,
         skill: String,
     },
+    /// The repo's `rules/*.md`. Separate from `repo` so an org skills repo
+    /// that grows a `rules/` directory cannot start loading into every
+    /// session unasked.
+    Rules { owner: String, name: String },
 }
 
 impl Entry {
     pub fn owner(&self) -> &str {
         match self {
-            Entry::Repo { owner, .. } | Entry::Skill { owner, .. } => owner,
+            Entry::Repo { owner, .. } | Entry::Skill { owner, .. } | Entry::Rules { owner, .. } => {
+                owner
+            }
         }
     }
     pub fn name(&self) -> &str {
         match self {
-            Entry::Repo { name, .. } | Entry::Skill { name, .. } => name,
+            Entry::Repo { name, .. } | Entry::Skill { name, .. } | Entry::Rules { name, .. } => {
+                name
+            }
         }
     }
     pub fn slug(&self) -> String {
@@ -110,6 +120,13 @@ pub fn parse(text: &str) -> (Vec<Entry>, Vec<String>) {
                 name: name.to_string(),
                 skill: k.to_string(),
             }),
+            ("rules", None) => entries.push(Entry::Rules {
+                owner: owner.to_string(),
+                name: name.to_string(),
+            }),
+            ("rules", Some(_)) => problems.push(format!(
+                "line {n}: `rules` takes no #suffix — use `rules {slug}`"
+            )),
             ("skill", _) => problems.push(format!(
                 "line {n}: `skill` needs a #skill suffix — use `skill {slug}#<skill-name>`"
             )),
@@ -253,6 +270,7 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
             continue;
         };
         match entry {
+            Entry::Rules { .. } => claude::link_rules(ctx, &checkout.join("rules"))?,
             Entry::Repo { .. } => {
                 let found = discover(&checkout, MAX_DEPTH);
                 if found.is_empty() {
@@ -305,6 +323,19 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_rules_entries() {
+        let (e, p) = parse("rules Ethan-Arrowood/skills\nrules a/b#c\n");
+        assert_eq!(
+            e,
+            vec![Entry::Rules {
+                owner: "Ethan-Arrowood".into(),
+                name: "skills".into()
+            }]
+        );
+        assert_eq!(p.len(), 1, "{p:?}");
+    }
 
     #[test]
     fn parses_repo_and_skill_entries() {

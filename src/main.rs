@@ -162,10 +162,9 @@ fn install(ctx: &Ctx, args: InstallArgs) -> Result<()> {
         ui::head(&format!("Layer: {} — {}", l.name, l.description));
         (l.install)(ctx, l)?;
         // Applied to every layer, so a layer opts in by shipping the files
-        // rather than by adding code: home/ -> $HOME, claude/rules/*.md ->
-        // ~/.claude/rules/, Skillfile -> cloned and symlinked skills.
+        // rather than by adding code: home/ -> $HOME, Skillfile -> cloned
+        // and symlinked skills and Claude rules.
         link::link_home_dir(ctx, &l.path(ctx))?;
-        claude::link_rules(ctx, l)?;
         skills::install(ctx, l)?;
     }
     dock::apply(ctx, &selected)?;
@@ -358,7 +357,6 @@ fn relink(ctx: &Ctx) -> Result<()> {
         // documented repair tool, and ssh config.d, the Claude rules and the
         // skill links all go stale the same way.
         link::link_home_dir(ctx, &l.path(ctx))?;
-        claude::link_rules(ctx, &l)?;
         skills::install(ctx, &l)?;
     }
     ui::detail("ssh and app configs are re-linked by `dotfiles install`");
