@@ -293,17 +293,20 @@ mod tests {
     /// prefix, so the old line-parser dropped it. Skipped when brew is absent.
     #[test]
     fn load_shellenv_imports_path() {
-        if brew_bin().is_none() {
+        let Some(brew) = brew_bin() else {
             return;
-        }
+        };
+        // Whichever prefix this machine has: /opt/homebrew, /usr/local, or
+        // Linuxbrew on CI.
+        let bin_dir = brew.parent().unwrap().to_string_lossy().into_owned();
         let before = std::env::var("PATH").unwrap_or_default();
         std::env::set_var("PATH", "/usr/bin:/bin");
         load_shellenv().unwrap();
         let after = std::env::var("PATH").unwrap_or_default();
         std::env::set_var("PATH", before);
         assert!(
-            after.contains("homebrew") || after.contains("/usr/local/bin"),
-            "brew prefix missing from PATH after load_shellenv: {after}"
+            after.split(':').any(|d| d == bin_dir),
+            "{bin_dir} missing from PATH after load_shellenv: {after}"
         );
     }
 
