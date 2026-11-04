@@ -84,8 +84,8 @@ fn with_clt_sentinel<T>(f: impl FnOnce() -> Result<T>) -> Result<T> {
 /// The highest-versioned "Command Line Tools" label in a `softwareupdate -l`
 /// listing.
 ///
-/// The listing is NOT version-ordered -- a real run on macOS 26.6 offered
-/// 26.5, then 27.0, then 26.6, in that order -- so taking the last line picks
+/// The listing is NOT version-ordered (a real run on macOS 26.6 offered
+/// 26.5, then 27.0, then 26.6, in that order), so taking the last line picks
 /// an older release than is available. Sort by the trailing version instead.
 fn newest_clt_label(listing: &str) -> Option<String> {
     listing
@@ -391,7 +391,7 @@ mod tests {
     }
 
     /// Verbatim from a real `softwareupdate -l` on macOS 26.6.2, which lists
-    /// 26.5, 27.0 and 26.6 in that order -- taking the last line gives 26.6.
+    /// 26.5, 27.0 and 26.6 in that order. Taking the last line gives 26.6.
     const LISTING: &str = "\
 * Label: Safari27.0TahoeAuto-27.0
 * Label: Command Line Tools for Xcode 26.5-26.5

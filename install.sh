@@ -8,7 +8,7 @@
 # matching `dotfiles` binary from GitHub Releases, then hands off to it.
 # Nothing here needs Rust: the binary is prebuilt.
 #
-# Deliberately POSIX sh and dependency-free -- this is the one piece that
+# Deliberately POSIX sh and dependency-free: this is the one piece that
 # cannot assume anything is already installed.
 set -eu
 
@@ -38,9 +38,9 @@ done
 
 # Install the Xcode Command Line Tools headlessly.
 #
-# `softwareupdate` only offers CLT while this sentinel file exists -- an
+# `softwareupdate` only offers CLT while this sentinel file exists (an
 # undocumented but long-standing Apple behaviour, verified working on macOS
-# 26.6. The listing is not version-ordered, so sort rather than taking the
+# 26.6). The listing is not version-ordered, so sort rather than taking the
 # last line. Mirrors xcode_clt() in src/layers/mac_base.rs, which handles the
 # same job for `dotfiles install` run directly.
 install_clt() {
@@ -65,7 +65,7 @@ if ! git --version >/dev/null 2>&1; then
   if [ "$(uname -s)" != "Darwin" ]; then
     die "git is required"
   fi
-  say "git is not usable yet — the Xcode Command Line Tools are missing"
+  say "git is not usable yet: the Xcode Command Line Tools are missing"
   [ -z "$dry_run" ] || die "dry run: would install the Command Line Tools; nothing else can run without git"
   if ! install_clt; then
     # No tty for sudo, softwareupdate restricted by MDM, or Apple changed the
@@ -84,7 +84,7 @@ if [ -d "$REPO_DIR/.git" ] && [ -n "$dry_run" ]; then
   say "dry run: leaving $REPO_DIR as it is"
 elif [ -d "$REPO_DIR/.git" ]; then
   say "updating $REPO_DIR"
-  git -C "$REPO_DIR" pull --ff-only || say "(pull skipped -- local changes?)"
+  git -C "$REPO_DIR" pull --ff-only || say "(pull skipped: local changes?)"
 else
   say "cloning into $REPO_DIR"
   mkdir -p "$(dirname "$REPO_DIR")"
@@ -131,7 +131,7 @@ if [ -z "${musl:-}" ] && curl -fsSL "$url" -o "$tmp/dotfiles.tar.gz" 2>"$tmp/cur
   say "installed $BIN_DIR/dotfiles"
 else
   # Could be a missing release, but equally a DNS failure, a proxy, or a rate
-  # limit -- so show what curl actually said rather than guessing.
+  # limit, so show what curl actually said rather than guessing.
   if [ -z "${musl:-}" ]; then
     say "could not download $url"
     [ -s "$tmp/curl.err" ] && sed 's/^/    /' "$tmp/curl.err"

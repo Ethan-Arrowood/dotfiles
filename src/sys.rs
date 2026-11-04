@@ -98,7 +98,7 @@ impl Cmd {
 
     /// Run it, honoring dry-run. `Ok(true)` means it ran and succeeded;
     /// `Ok(false)` means it ran and failed. Only a failure to *spawn* is an
-    /// `Err` -- a non-zero exit is data, not an error, because most of these
+    /// `Err`. A non-zero exit is data, not an error, because most of these
     /// steps are advisory.
     pub fn run(&self, ctx: &Ctx, desc: &str) -> Result<bool> {
         if ctx.dry_run {
@@ -241,8 +241,8 @@ pub fn sys_install(ctx: &Ctx, pkgs: &[&str]) -> Result<bool> {
 /// would escape the sandbox onto the real machine.
 ///
 /// Fails CLOSED. An earlier version returned "not sandboxed" from every error
-/// path, so a machine where the home lookup failed -- a directory-services
-/// bound Mac, a container without `id` -- silently ran with no guard at all.
+/// path, so a machine where the home lookup failed (a directory-services
+/// bound Mac, a container without `id`) silently ran with no guard at all.
 /// For a safety check, "I could not tell" must mean "do not".
 /// DOTFILES_ALLOW_SANDBOXED_HOME=1 is the escape hatch.
 pub fn home_is_sandboxed() -> Sandbox {
@@ -295,7 +295,7 @@ fn real_home_dir() -> Option<std::path::PathBuf> {
     }
 
     // macOS has no getent. Query /Search rather than the local node `.`, so a
-    // machine bound to AD/LDAP -- where the user record is not local -- still
+    // machine bound to AD/LDAP (where the user record is not local) still
     // resolves instead of silently disabling the guard.
     for node in ["/Search", "."] {
         let Ok(o) = Command::new("dscl")
@@ -309,7 +309,7 @@ fn real_home_dir() -> Option<std::path::PathBuf> {
         }
         let text = String::from_utf8_lossy(&o.stdout);
         // Either "NFSHomeDirectory: /Users/x" or the key on its own line with
-        // the value on the next -- the latter when the value contains a space.
+        // the value on the next (the latter when the value contains a space).
         let value = text
             .strip_prefix("NFSHomeDirectory:")
             .map(str::trim)
@@ -404,7 +404,7 @@ pub fn login_shell_of_record() -> Option<String> {
     None
 }
 
-/// Download a script, then run it -- never `curl … | sh`.
+/// Download a script, then run it. Never `curl … | sh`.
 ///
 /// A pipeline's exit status is the shell's, so a failed download exits 0 and
 /// the caller's error branch never fires. `set -o pipefail` would fix it on

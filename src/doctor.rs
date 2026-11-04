@@ -48,7 +48,7 @@ pub fn run(ctx: &Ctx) -> Result<bool> {
         ));
     } else {
         r.warn(&format!(
-            "login shell is {shell}, not zsh — run: chsh -s $(command -v zsh)"
+            "login shell is {shell}, not zsh. Run: chsh -s $(command -v zsh)"
         ));
     }
 
@@ -76,7 +76,7 @@ pub fn run(ctx: &Ctx) -> Result<bool> {
             r.ok("ssh key loaded in the agent");
         } else {
             r.warn(&format!(
-                "ssh key is not in the agent — run: ssh-add {}",
+                "ssh key is not in the agent. Run: ssh-add {}",
                 ctx.pretty(&key)
             ));
         }
@@ -91,7 +91,7 @@ pub fn run(ctx: &Ctx) -> Result<bool> {
     {
         r.ok("~/.ssh/config includes config.d/");
     } else {
-        r.warn("~/.ssh/config does not include config.d/ — run: dotfiles install");
+        r.warn("~/.ssh/config does not include config.d/. Run: dotfiles install");
     }
 
     if key.exists() {
@@ -110,7 +110,7 @@ pub fn run(ctx: &Ctx) -> Result<bool> {
         if probe.contains("successfully authenticated") {
             r.ok("github ssh authentication works");
         } else if probe.contains("Permission denied") {
-            r.warn("github rejected the ssh key — run: dotfiles github");
+            r.warn("github rejected the ssh key. Run: dotfiles github");
         } else {
             r.skip("github ssh probe inconclusive (offline?)");
         }
@@ -137,7 +137,7 @@ pub fn run(ctx: &Ctx) -> Result<bool> {
             if ctx.home.join(".ssh/allowed_signers").exists() {
                 r.ok("allowed_signers present (local verification works)");
             } else {
-                r.warn("no ~/.ssh/allowed_signers — git can sign but not verify");
+                r.warn("no ~/.ssh/allowed_signers: git can sign but not verify");
             }
         } else {
             r.error(&format!(

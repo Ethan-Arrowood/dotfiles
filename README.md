@@ -10,19 +10,19 @@ curl -fsSL https://raw.githubusercontent.com/Ethan-Arrowood/dotfiles/main/instal
 dotfiles install --profile mac-dev
 ```
 
-On a factory-fresh Mac that is genuinely the only command: the script installs the Xcode Command Line Tools itself (sudo will ask for your password once), then clones, downloads the binary and runs it. If that fails — no terminal for sudo, or MDM restrictions — it falls back to Apple's GUI installer and asks you to re-run.
+On a factory-fresh Mac that is the only command. The script installs the Xcode Command Line Tools itself (sudo asks for your password once), then clones, downloads the binary and runs it. If that fails (no terminal for sudo, or MDM restrictions), it falls back to Apple's GUI installer and asks you to re-run.
 
-Always safe to run twice: a second run re-links nothing, writes no `defaults` that already match, and does not touch installed toolchains — CI asserts this. Add `--dry-run` to see the plan without touching anything, and `--update` to refresh installed toolchains (rustup, uv), which is otherwise never implicit. The Xcode Command Line Tools are installed if missing and then left alone — they track the OS release, so updating them belongs to Software Update.
+Safe to run twice. A second run re-links nothing, rewrites no generated file or `defaults` value that already matches, and leaves installed toolchains alone. CI asserts this for the core profile. Add `--dry-run` to see the plan without changing anything, and `--update` to refresh installed toolchains (rustup, uv), which never happens otherwise. The Xcode Command Line Tools are installed if missing and then left alone: they track the OS release, so updating them belongs to Software Update.
 
 Auditing rather than using it? [ARCHITECTURE.md](ARCHITECTURE.md) walks the code: the install loop, every path that touches `$HOME`, the three dangerous operations and their guards, and what the tests actually assert.
 
 ## How it is built
 
-A Rust binary (the orchestrator) plus this repo (the layer assets) — the same split [chezmoi](https://chezmoi.io) uses. **Rust is not needed on the target machine**: `install.sh` downloads a prebuilt binary for the platform from GitHub Releases. It falls back to `cargo build` only if no release matches.
+A Rust binary (the orchestrator) plus this repo (the layer assets), the same split [chezmoi](https://chezmoi.io) uses. **Rust is not needed on the target machine**: `install.sh` downloads a prebuilt binary for the platform from GitHub Releases. It falls back to `cargo build` only if no release matches.
 
-The assets stay as plain text on purpose — Brewfiles, `.zshrc` fragments, ssh config, the Ghostty config. Those are configuration, not code, and they have to be symlinkable so an edit in `$HOME` and an edit in the repo are the same edit. Embedding them in the binary would break that.
+The assets stay as plain text on purpose: Brewfiles, `.zshrc` fragments, ssh config, the Ghostty config. Those are configuration, not code, and they have to be symlinkable so an edit in `$HOME` and an edit in the repo are the same edit. Embedding them in the binary would break that.
 
-```
+```text
 src/            the orchestrator
   layer.rs      registry: the single source of truth for which layers exist
   layers/       one module per layer
@@ -34,17 +34,17 @@ profiles/       named layer sets
 
 ### Why not shell
 
-It was shell first. Five bugs in one sitting made the case for a rewrite, and each is now a test:
+It was shell first. Five bugs in one sitting made the case for a rewrite. Each now has a test, or can't happen in Rust:
 
-| Bug | Cause | Test |
+| Bug | Cause | Guard |
 | --- | --- | --- |
 | Layer loop broke at 2+ layers | zsh does not word-split unquoted vars | `no_runtime_globbing_or_word_splitting` |
 | Every `setopt` silently reverted | `local_options` restores on return | `zsh_fragments_are_guarded_...` |
-| Install truncated, no output | `has gh &&` returning 1 under `set -e` | `Result` makes it unrepresentable |
-| Install aborted on a bad config | unguarded `$(...)` under `set -e` | same |
+| Install truncated, no output | `has gh &&` returning 1 under `set -e` | none needed: errors are `Result`s |
+| Install aborted on a bad config | unguarded `$(...)` under `set -e` | none needed: errors are `Result`s |
 | Brewfile comments became package names | naive `read` | `trailing_comments_are_not_part_of_the_name` |
 
-Run them with `cargo test`. CI additionally installs the core profile in a bare `debian:bookworm-slim` container, checks a second run is idempotent, and asserts an ssh-signed commit verifies (`%G? = G`).
+Run them with `cargo test`. CI also installs the core profile in a bare `debian:bookworm-slim` container and checks the result: the packages, the ssh config, the agentic rules and hook, both shells loading `init.sh`, a second run changing nothing, the sandbox guard, and an ssh-signed commit verifying (`%G? = G`).
 
 ## Profiles
 
@@ -74,7 +74,7 @@ dotfiles install --profile core --with mac-apps                # build your own
 | `mac-apps-extra` | macOS | Slack, Zoom, Spotify, Discord, Podman, DaisyDisk |
 | `work-harper` | any | Codex, Antigravity (`agy`) and gcloud CLIs (macOS), the [dispatch](src/layers/work_harper.rs) client and Claude plugin, Harper dev-server aliases, LastPass (opt-in; no identity override) |
 
-`core` is the only layer that has to work everywhere, so it assumes nothing: no Homebrew, no Node, no GUI. Every optional integration in it — starship, fzf, the zsh plugins, git-delta — is guarded by a `command -v` check and degrades to a sane built-in.
+`core` is the only layer that has to work everywhere, so it assumes nothing: no Homebrew, no Node, no GUI. Every optional integration in it (starship, fzf, the zsh plugins, git-delta) is guarded by a `command -v` check and degrades to a sane built-in.
 
 ## Commands
 
@@ -83,28 +83,28 @@ dotfiles install [--profile NAME] [--with LAYER] [--without LAYER] [--dry-run] [
                  [--no-signing] [--update]
 dotfiles list      # profiles and layers
 dotfiles status    # what this machine has installed, and where links point
-dotfiles link      # re-link $HOME files only, no packages
-dotfiles doctor    # missing tools, broken links, key expiry
+dotfiles link      # re-link files and re-apply Skillfiles, no packages
+dotfiles doctor    # missing tools, ssh and signing setup, broken links
 dotfiles github    # register this machine's ssh key with GitHub (auth + signing)
 ```
 
 ### Safety
 
-Anything machine-global — `brew install`, `defaults write`, `chsh`, `ssh-add --apple-use-keychain`, the toolchain installers — is skipped when `$HOME` is not your real home directory, because that means a test harness with a sandboxed `$HOME`. File operations follow `$HOME` and stay contained; these do not, and would escape the sandbox.
+Anything machine-global is skipped when `$HOME` is not your real home directory, because that means a test harness with a sandboxed `$HOME`. That covers `brew install`, `defaults write`, the Dock, `chsh`, `ssh-add --apple-use-keychain`, the toolchain installers, and key uploads to GitHub. File operations follow `$HOME` and stay contained; these do not, and would escape the sandbox.
 
-The guard **fails closed**: if it cannot determine your real home, it blocks rather than allows. `DOTFILES_ALLOW_SANDBOXED_HOME=1` is the escape hatch, and CI asserts the guard actually fires.
+The guard **fails closed**: if it cannot determine your real home, it blocks rather than allows. `DOTFILES_ALLOW_SANDBOXED_HOME=1` is the escape hatch (only the value `1` counts), and CI asserts the guard actually fires.
 
 ## How it works
 
-```
+```text
 layers/core/
 ├── home/          symlinked into $HOME
-├── shell/*.sh     POSIX fragments — sourced by bash and zsh
+├── shell/*.sh     POSIX fragments, sourced by bash and zsh
 ├── zsh/*.zsh      zsh-only fragments
 └── ssh/*.conf     ~/.ssh/config.d/ fragments
 ```
 
-The directory name **is** the layer name, and install order is the declaration order of `registry()` in `src/layer.rs` — one ordered list, one source of truth. (The shell version numbered these directories because a glob decided the order; nothing globs any more, so the numbers were just a second place for the ordering to drift.)
+The directory name **is** the layer name, and install order is the declaration order of `registry()` in `src/layer.rs`: one ordered list, one source of truth. (The shell version numbered these directories because a glob decided the order; nothing globs any more, so the numbers were just a second place for the ordering to drift.)
 
 Numbers on the *fragment files* are still load-bearing: they order files **within** a layer, and that comes from a filesystem sort.
 
@@ -112,21 +112,21 @@ Numbers on the *fragment files* are still load-bearing: they order files **withi
 
 ```sh
 # --- core ---
-. "$DOTFILES_ROOT/layers/core/shell/10-env.sh"
+. "$DOTFILES_ROOT"/'layers/core/shell/10-env.sh'
 if [ -n "${ZSH_VERSION:-}" ]; then
-  . "$DOTFILES_ROOT/layers/core/zsh/00-options.zsh"
+  . "$DOTFILES_ROOT"/'layers/core/zsh/00-options.zsh'
 fi
 ```
 
-**Editing** a fragment takes effect in the next shell. **Adding** one means re-running `dotfiles install` so it gets listed — cheap, since every step is a no-op when already done.
+**Editing** a fragment takes effect in the next shell. **Adding** one means re-running `dotfiles install` so it gets listed. That's cheap, since every step is a no-op when already done.
 
 Files in `$HOME` are symlinks back into the repo, so `vim ~/.zshrc` and `git diff` here show the same edit. Anything already present is moved to `~/.dotfiles-backup/<timestamp>/` first.
 
-One consequence to watch: an installer that appends to `~/.zshrc` or `~/.zshenv` follows the symlink and writes **into this repo**. rustup and uv are both invoked with the flags that stop them doing so (`--no-modify-path`, `INSTALLER_NO_MODIFY_PATH=1`), but a tool you run by hand can still do it. It shows up as an unexpected `git diff` here rather than as invisible local drift — review it rather than committing it blind.
+One consequence to watch: an installer that appends to `~/.zshrc` or `~/.zshenv` follows the symlink and writes **into this repo**. rustup and uv are both invoked with the flags that stop them doing so (`--no-modify-path`, `INSTALLER_NO_MODIFY_PATH=1`), but a tool you run by hand can still do it. It shows up as an unexpected `git diff` here rather than as invisible local drift. Review it rather than committing it blind.
 
 ## Adding a layer
 
-Two steps. Add a module under `src/layers/`:
+Three steps. Add a module under `src/layers/`:
 
 ```rust
 // src/layers/my_thing.rs
@@ -136,7 +136,7 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
 }
 ```
 
-and an entry in the `registry()` in `src/layer.rs`:
+Declare it in `src/layers/mod.rs` with `pub mod my_thing;`, and add an entry to `registry()` in `src/layer.rs`:
 
 ```rust
 Layer {
@@ -147,15 +147,15 @@ Layer {
 },
 ```
 
-Position in that list is the install order. Then create `layers/my-thing/` for its assets — a test fails if the directory is missing, since the name is the only thing pointing at it. It appears in `dotfiles list` immediately.
+Position in that list is the install order. Then create `layers/my-thing/` for its assets. A test fails if the directory is missing, since the name is the only thing pointing at it. It appears in `dotfiles list` immediately.
 
 Helpers available: `ui::{head,step,ok,skip,warn,detail}`, `link::{link_file, link_home_dir,write_file}`, `brew::bundle`, `sys::{has,which,is_macos, is_container,allow_global_changes}`.
 
-`Brewfile`s are a plain list, not `brew bundle` syntax — `formula <name>`, `cask <name>`, `tap <name>`, one per line, `#` comments allowed. A cask that has been renamed or pulled warns and the run continues.
+`Brewfile`s are a plain list, not `brew bundle` syntax: `formula <name>`, `cask <name>`, `tap <name>`, one per line, `#` comments allowed. A malformed line is reported with its line number. A cask that has been renamed or pulled warns and the run continues.
 
 macOS settings live in [`layers/mac-base/Defaultsfile`](layers/mac-base/Defaultsfile), one `domain key type value` per line. Each key is read first and only written when it differs.
 
-A `Dockfile` lists Dock items, one path per line, optionally followed by `dockutil` flags. Every selected layer's `Dockfile` is combined in layer order and the Dock is set to exactly that, after all layers have installed, so Chrome (from [`mac-apps`](layers/mac-apps/Dockfile)) joins mac-base's [items](layers/mac-base/Dockfile) only on a machine that has it.
+A `Dockfile` lists Dock items, one path per line, optionally followed by `dockutil` flags. Every selected layer's `Dockfile` is combined in layer order and the Dock is set to exactly that, after all layers have installed, so Chrome (from [`mac-apps`](layers/mac-apps/Dockfile)) joins mac-base's [items](layers/mac-base/Dockfile) only on a machine that has it. The Dock is left alone when its items match and the flags match what the last run applied (recorded in `~/.config/dotfiles/dock.applied`).
 
 ## Agent config
 
@@ -186,18 +186,18 @@ Note: Claude Code skips a symlinked user-scope rule file in Cowork sessions on t
 
 ## Skills
 
-Skills are not vendored here. Their source lives in its own repository, which gets cloned once and then symlinked into `~/.claude/skills/`. Claude Code follows a symlinked skill directory and reads `SKILL.md` from the target, so the clone is simultaneously the installed skill *and* an editable checkout — edit it in place and the change is live, with no re-sync step.
+Skills are not vendored here. Their source lives in its own repository, which gets cloned once and then symlinked into `~/.claude/skills/`. Claude Code follows a symlinked skill directory and reads `SKILL.md` from the target, so the clone is both the installed skill *and* an editable checkout. Edit it in place and the change is live, with no re-sync step.
 
 A layer declares what it wants in a `Skillfile`, same format as a `Brewfile`:
 
-```
+```text
 repo  <owner>/<repo>                         every skill in the repo
 skill <owner>/<repo>#<skill>                 just that one
 rules <owner>/<repo>                         its rules/ -> ~/.claude/rules/
 hook  <agent> <owner>/<repo>#<path> <Event> [secs]   a claude or codex hook
 ```
 
-```
+```text
 # layers/core/Skillfile
 repo  Ethan-Arrowood/agentic
 rules Ethan-Arrowood/agentic
@@ -209,13 +209,13 @@ repo harperfast/skills-internal
 hook codex Ethan-Arrowood/agentic#agents/codex/sync.sh SessionStart
 ```
 
-Repos clone to `$DOTFILES_SRC_DIR/<owner>/<repo>`, default `~/dev`, with the owner lowercased so `Ethan-Arrowood/agentic` lands beside `~/dev/ethan-arrowood/`. Several lines naming one repo clone it once. `gh repo clone` is used when available so private and internal repos work; otherwise plain `git clone` over ssh.
+Repos clone to `$DOTFILES_SRC_DIR/<owner>/<repo>`, default `~/dev`, with the owner lowercased so `Ethan-Arrowood/agentic` lands beside `~/dev/ethan-arrowood/`. Several lines naming one repo clone it once. A clone tries HTTPS first, which works for a public repo on a fresh machine with no credentials yet. Then `gh repo clone`, for private and internal repos, then `git clone` over ssh.
 
 The installer **never pulls or modifies** an existing checkout. These are working trees you edit, so updating them is your call. A hook it runs may: agentic's sync hooks fast-forward their clone with `git pull --ff-only`, which never merges or discards local work.
 
 Skills are found by locating `SKILL.md` rather than by assuming a path, because layouts differ: `harperfast/skills` puts skills at the top level, while `Ethan-Arrowood/agentic` and `harperfast/skills-internal` nest them under `skills/`. The search is bounded to two levels and stops descending once a directory is identified as a skill, so an example `SKILL.md` inside a skill does not become a phantom entry.
 
-A local-only skill that is a real directory in `~/.claude/skills/` coexists fine — nothing touches a name no `Skillfile` declares.
+A local-only skill that is a real directory in `~/.claude/skills/` coexists fine: nothing touches a name no `Skillfile` declares. When two layers declare the same skill name, the first one wins and the other is reported.
 
 ## Machine-local escape hatches
 
@@ -224,7 +224,7 @@ Nothing here needs a fork:
 | File | Purpose |
 | --- | --- |
 | `~/.zshrc.local` | Sourced last by every interactive zsh |
-| `~/.zshenv.local` | Sourced by every zsh, including non-interactive |
+| `~/.zshenv.local` | Sourced by every zsh, before `init.sh`. Set inputs like `DOTFILES_NO_AUTOCD` and `HARPER_DEV_ROOT` here |
 | `~/.zprofile.local` | Login shells |
 | `~/.gitconfig.local` | Git settings for this machine only |
 
@@ -237,9 +237,9 @@ The core layer sets SSH up on every machine, macOS or container:
 - Generates an ed25519 key if there isn't one (it prompts for a passphrase; unattended runs print the command instead of making a passphraseless key).
 - Loads it into the agent, with `--apple-use-keychain` on macOS so it survives reboots.
 
-`Host *` defaults live in `99-defaults.conf`, numbered last on purpose: ssh takes the **first** value it sees for a keyword, so a `Host *` block placed early silently overrides every specific host after it.
+Fallback defaults live in `99-defaults.conf` under `Match final`, not `Host *`. ssh takes the **first** value it sees for a keyword, and the Include sits at the top of `~/.ssh/config`, so a `Host *` block there would override every host entry of yours below it. A `Match final` block is read in a last pass and only fills in what nothing else set.
 
-Git rewrites `https://github.com/` to `git@github.com:`, so every clone uses SSH regardless of the URL you paste.
+Git pushes to `https://github.com/` URLs over SSH (`pushInsteadOf`). Clones and fetches keep the URL you give them, so an HTTPS clone made before any key exists can still pull.
 
 ## Registering keys with GitHub
 
@@ -254,21 +254,21 @@ GitHub treats these as two separate uploads of the same key, which is the part w
 | ssh **authentication** key | `git push` works | `admin:public_key` |
 | ssh **signing** key | commits show Verified | `admin:ssh_signing_key` |
 
-The same ssh key has to be uploaded **twice**, once as each type — that is the step everyone forgets. `dotfiles github` checks what is already registered, requests any missing token scope for you, uploads only what is needed, and then verifies by authenticating over ssh and making a real signed commit in a temp repo. Every upload asks first; nothing touches your account unattended.
+The same ssh key has to be uploaded **twice**, once as each type. That is the step everyone forgets. `dotfiles github` checks what is already registered, requests any missing token scope for you, uploads only what is needed, and then verifies by authenticating over ssh and making a real signed commit in a temp repo. Every upload asks first; nothing touches your account unattended.
 
 ## Commit signing
 
 One method: **the machine's own ssh key**. The same key that pushes also signs.
 
-There is no mode to choose — a machine either has a key or it does not. If it does, commits are signed; if not, `install` says so and tells you how to make one. `--no-signing` opts out, and exists for CI.
+There is no mode to choose: a machine either has a key or it does not. If it does, commits are signed; if not, `install` says so and tells you how to make one. `--no-signing` opts out, and exists for CI.
 
 Nothing is written into `~/.gitconfig`. The settings go in a generated include ([`signing.rs`](src/signing.rs)), so a machine with no key gets a working git rather than one that fails on every commit. Signing also writes `~/.ssh/allowed_signers`, without which git can create signatures but not verify its own.
 
-**The catch:** GitHub keeps *two* lists — authentication keys and signing keys — and the same public key has to be uploaded to both. Pushing works with only the first, so a missing signing key shows up as **Unverified** commits and nothing else. `dotfiles github` does both uploads; `dotfiles install` checks and tells you if one is missing.
+**The catch:** GitHub keeps *two* lists, authentication keys and signing keys, and the same public key has to be uploaded to both. Pushing works with only the first, so a missing signing key shows up as **Unverified** commits and nothing else. `dotfiles github` does both uploads; `dotfiles install` checks and tells you if one is missing.
 
 ## Machines, containers and remote boxes
 
-The rule: **the private key lives on laptops only.** Everything else borrows it through the agent, or gets its own.
+The rule: **a laptop's private key never leaves that laptop.** Other machines borrow it through the agent, or get a key of their own.
 
 | Where | Auth (push) | Signing | What to do |
 | --- | --- | --- | --- |
@@ -286,7 +286,7 @@ This is why signing is ssh-only. Agent forwarding is built into ssh and into VS 
 
 ### Devcontainers, specifically
 
-VS Code already forwards your ssh agent and copies your `~/.gitconfig` into the container. That gets you push and the right author identity — but **not signing**, because the copied gitconfig's `[include]` lines point at `~/.config/dotfiles/gitconfig.signing`, which does not exist in the container. Git ignores missing includes silently, so commits come out unsigned with no warning.
+VS Code already forwards your ssh agent and copies your `~/.gitconfig` into the container. That gets you push and the right author identity, but **not signing**, because the copied gitconfig's `[include]` lines point at `~/.config/dotfiles/gitconfig.signing`, which does not exist in the container. Git ignores missing includes silently, so commits come out unsigned with no warning.
 
 Fix it by running the core layer inside the container:
 
@@ -299,17 +299,17 @@ Fix it by running the core layer inside the container:
 }
 ```
 
-`DOTFILES_SSH_KEY` is the load-bearing line. Without it the installer looks for `~/.ssh/id_ed25519.pub`, which does not exist in the container, and falls through to unsigned — the exact silent failure described above. It points at the *private* key path; the `.pub` suffix is appended, and only the public half needs to be mounted.
+`DOTFILES_SSH_KEY` is the load-bearing line. Without it the installer looks for `~/.ssh/id_ed25519.pub`, which does not exist in the container, and falls through to unsigned: the exact silent failure described above. It points at the *private* key path; the `.pub` suffix is appended, and only the public half needs to be mounted.
 
-The core layer detects the container, leaves the login shell alone, skips key generation, and configures signing against the forwarded agent. Only the *public* key is mounted — the private key stays on the host.
+The core layer detects the container, leaves the login shell alone, skips key generation, and configures signing against the forwarded agent. Only the *public* key is mounted; the private key stays on the host.
 
 ### Remote servers
 
 For a box you use regularly, give it its own key and run `dotfiles install --profile core` on it. Per-machine keys mean revoking one machine is one click in GitHub, with nothing else to rotate.
 
-For a one-off, forward the agent — but scope it to that host, never globally:
+For a one-off, forward the agent, but scope it to that host, never globally:
 
-```
+```text
 # ~/.ssh/config.d/50-mybox.conf
 Host mybox
     ForwardAgent yes
@@ -319,9 +319,9 @@ Host mybox
 
 ## The old GPG key (historical)
 
-Commits were GPG-signed through 2026 with key `79007EFD4678CB94` (RSA 4096, expires 2028-07-19). **Dashlane holds both halves** — that is the only copy, and it is where it should stay.
+Commits were GPG-signed through 2026 with key `79007EFD4678CB94` (RSA 4096, expires 2028-07-19). **Dashlane holds both halves.** That is the only copy, and it is where it should stay.
 
-This tool no longer touches it. Signing is ssh-only, so nothing here needs a portable private key, and the code never handles key material. If you ever need the old key back — verifying an old signature, say:
+This tool no longer touches it. Signing is ssh-only, so nothing here needs a portable private key, and the code never handles key material. If you ever need the old key back (to verify an old signature, say):
 
 ```bash
 dcli read 'dl://<secret-id>' | gpg --import

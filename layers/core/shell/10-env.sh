@@ -3,7 +3,7 @@
 # gpg needs to know which terminal to prompt on, or signing fails in ways that
 # look like git bugs.
 # `tty` prints "not a tty" and exits non-zero in a non-interactive shell, and
-# the && only guards the export, not the assignment -- so the variable was left
+# the && only guards the export, not the assignment, so the variable was left
 # holding that string. Only set it when there really is one.
 if _df_tty="$(tty 2>/dev/null)" && [ -n "$_df_tty" ]; then
   GPG_TTY="$_df_tty"

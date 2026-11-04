@@ -1,6 +1,6 @@
 # Skills, rules and hooks for any dev machine. Cloned to ~/dev/<owner>/<repo>
 # and symlinked or registered from there, so the checkout is both the
-# installed copy and an editable source tree — edits are live, no re-sync.
+# installed copy and an editable source tree. Edits are live, no re-sync.
 #
 #   repo  <owner>/<repo>                         every skill in the repo
 #   skill <owner>/<repo>#<skill>                 just that one

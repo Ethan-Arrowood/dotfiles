@@ -4,7 +4,7 @@
 //! `.` lines rather than globbed at startup. Globbing looked simpler but is
 //! not portable between the two shells this has to serve: zsh does not
 //! word-split unquoted parameters and aborts on an unmatched glob, and the
-//! obvious guard for the latter -- `setopt local_options null_glob` --
+//! obvious guard for the latter (`setopt local_options null_glob`)
 //! silently reverts every `setopt` a sourced fragment performs.
 //!
 //! Trade-off: a NEW fragment file needs `dotfiles install` re-run. Edits to
@@ -18,7 +18,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 /// Single-quote a value for shell. A repo path containing `"`, `$` or a
-/// backtick would otherwise break or inject into the generated init.sh -- and
+/// backtick would otherwise break or inject into the generated init.sh, and
 /// .zshrc sources that unconditionally, so every new shell would error.
 pub(crate) fn sh_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))

@@ -39,7 +39,7 @@ impl Layer {
     }
 }
 
-/// Every layer. **Declaration order is install order** -- and the order
+/// Every layer. **Declaration order is install order**, and the order
 /// shell fragments are sourced in. There is no separate order field and no
 /// numeric prefix on the directories: one ordered list, one source of truth.
 pub fn registry() -> Vec<Layer> {
@@ -144,7 +144,7 @@ pub fn resolve(
     }
 
     // Filtering the registry preserves its declaration order, which is the
-    // install order -- no separate sort needed.
+    // install order: no separate sort needed.
     let selected: Vec<Layer> = registry()
         .into_iter()
         .filter(|l| wanted.remove(l.name))

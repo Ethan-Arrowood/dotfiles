@@ -1,10 +1,10 @@
 //! One command for the GitHub key dance, so nobody rereads the docs.
 //!
-//! GitHub treats these as three separate uploads, which is the part that is
+//! GitHub treats these as two separate uploads, which is the part that is
 //! easy to forget:
 //!
-//! - ssh AUTHENTICATION key (git push) -- scope `admin:public_key`
-//! - ssh SIGNING key (Verified badge) -- scope `admin:ssh_signing_key`
+//! - ssh AUTHENTICATION key (git push): scope `admin:public_key`
+//! - ssh SIGNING key (Verified badge): scope `admin:ssh_signing_key`
 //!
 //! The same ssh key must be uploaded twice, once as each type.
 
@@ -115,7 +115,7 @@ pub fn run(ctx: &Ctx) -> Result<()> {
     let key = signing::ssh_key_path(ctx);
     let pub_path = signing::ssh_pub_path(ctx);
     if !pub_path.exists() {
-        bail!("no ssh key at {} — run: dotfiles install", ctx.pretty(&key));
+        bail!("no ssh key at {}. Run: dotfiles install", ctx.pretty(&key));
     }
     let Some(pubkey) = signing::ssh_pub_key(ctx) else {
         bail!("could not read {}", ctx.pretty(&pub_path));
@@ -144,7 +144,7 @@ pub fn run(ctx: &Ctx) -> Result<()> {
             &format!("{} (signing)", key_title()),
         )?;
     } else {
-        ui::skip("git is not set to sign with ssh — run `dotfiles install` first");
+        ui::skip("git is not set to sign with ssh. Run `dotfiles install` first");
     }
 
     verify(ctx);
@@ -237,7 +237,7 @@ fn verify(ctx: &Ctx) {
         ui::error("ssh: github rejected the key");
     } else {
         ui::warn(&format!(
-            "ssh: inconclusive — {}",
+            "ssh: inconclusive ({})",
             probe.lines().next().unwrap_or("")
         ));
     }
@@ -274,7 +274,7 @@ fn verify(ctx: &Ctx) {
             ));
         }
         "U" => ui::warn("commits are signed but the key is untrusted locally"),
-        "N" => ui::warn("commits are NOT signed — run: dotfiles install"),
+        "N" => ui::warn("commits are NOT signed. Run: dotfiles install"),
         other => ui::warn(&format!("could not determine signing status ({other})")),
     }
     let _ = ctx;

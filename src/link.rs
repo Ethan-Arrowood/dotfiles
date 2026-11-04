@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 /// Where a displaced file goes, preserving its location under the backup root.
 ///
 /// Keyed on the basename alone, `~/.zshrc`, `~/.claude/rules/general.md` and
-/// `~/.claude/skills/general` all landed on top of each other -- and
+/// `~/.claude/skills/general` all landed on top of each other, and
 /// `fs::rename` silently replaces an existing file, so the earlier backup was
 /// destroyed without a word.
 pub(crate) fn backup_path(ctx: &Ctx, dst: &Path) -> PathBuf {
@@ -37,8 +37,8 @@ pub fn link_file(ctx: &Ctx, src: &Path, dst: &Path) -> Result<()> {
 
     // symlink_metadata so a broken symlink still counts as present.
     if let Ok(meta) = fs::symlink_metadata(dst) {
-        // A real directory is almost certainly the user's own content -- a
-        // hand-written skill, a config tree -- and moving it wholesale into a
+        // A real directory is almost certainly the user's own content (a
+        // hand-written skill, a config tree), and moving it wholesale into a
         // backup is too destructive to do silently.
         if meta.is_dir() && !meta.file_type().is_symlink() {
             ui::warn(&format!(
@@ -221,7 +221,7 @@ mod tests {
     }
 
     /// Two destinations sharing a basename used to collide in the backup dir,
-    /// and `rename` replaces silently -- so the first file was destroyed.
+    /// and `rename` replaces silently, so the first file was destroyed.
     #[test]
     fn same_basename_in_two_places_does_not_clobber_the_first_backup() {
         let (_d, ctx) = scratch();

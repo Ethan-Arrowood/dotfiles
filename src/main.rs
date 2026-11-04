@@ -1,4 +1,4 @@
-//! dotfiles — compose a machine from layers.
+//! dotfiles: compose a machine from layers.
 
 mod brew;
 mod claude;
@@ -86,8 +86,8 @@ fn main() {
 fn real_main() -> Result<()> {
     let cli = Cli::parse();
 
-    // One context for every command. The defaults are the safe ones -- do the
-    // work for real, ask before anything outward-facing -- and only `install`
+    // One context for every command. The defaults are the safe ones (do the
+    // work for real, ask before anything outward-facing), and only `install`
     // takes flags that change them.
     let mut ctx = Ctx::new(Ctx::find_root()?)?;
 
@@ -154,14 +154,14 @@ fn install(ctx: &Ctx, args: InstallArgs) -> Result<()> {
             .join(" ")
     );
     if ctx.dry_run {
-        println!("  dry run — nothing will change");
+        println!("  dry run: nothing will change");
     } else if !ui::confirm("Proceed?", ctx.assume_yes) {
         bail!("aborted");
     }
 
     let mut claimed = skills::Claimed::new();
     for l in &selected {
-        ui::head(&format!("Layer: {} — {}", l.name, l.description));
+        ui::head(&format!("Layer {}: {}", l.name, l.description));
         (l.install)(ctx, l)?;
         // Applied to every layer, so a layer opts in by shipping the files
         // rather than by adding code: home/ -> $HOME, Skillfile -> cloned
@@ -182,7 +182,7 @@ fn install(ctx: &Ctx, args: InstallArgs) -> Result<()> {
         ));
     }
     if ctx.dry_run {
-        println!("  dry run complete — re-run without --dry-run to apply\n");
+        println!("  dry run complete. Re-run without --dry-run to apply\n");
     } else {
         if ctx.backup_dir.exists() {
             println!(
@@ -235,11 +235,11 @@ fn next_steps(ctx: &Ctx) {
     if !signing_include.exists() {
         if key.exists() {
             steps.push(
-                "commits are unsigned (--no-signing) — to sign, re-run without it:  dotfiles install".into(),
+                "commits are unsigned (--no-signing). To sign, re-run without it:  dotfiles install".into(),
             );
         } else {
             steps.push(
-                "commits are unsigned — create the ssh key above, then re-run:  dotfiles install"
+                "commits are unsigned. Create the ssh key above, then re-run:  dotfiles install"
                     .into(),
             );
         }
@@ -314,7 +314,7 @@ fn status(ctx: &Ctx) -> Result<()> {
             println!("  profile    {profile}");
             println!("  layers     {}", layers.join(" "));
         }
-        None => println!("  no install recorded — run `dotfiles install`"),
+        None => println!("  no install recorded. Run `dotfiles install`"),
     }
 
     ui::head("Linked files");
@@ -347,7 +347,7 @@ fn status(ctx: &Ctx) -> Result<()> {
 
 fn relink(ctx: &Ctx) -> Result<()> {
     let Some((_, names)) = shellinit::installed(ctx) else {
-        bail!("nothing installed yet — run `dotfiles install` first");
+        bail!("nothing installed yet. Run `dotfiles install` first");
     };
     ui::head("Re-linking managed files");
     let mut claimed = skills::Claimed::new();
@@ -356,7 +356,7 @@ fn relink(ctx: &Ctx) -> Result<()> {
             ui::warn(&format!("unknown layer in recorded state: {n}"));
             continue;
         };
-        // Everything the install loop links, not just home/ -- this is the
+        // Everything the install loop links, not just home/: this is the
         // documented repair tool, and ssh config.d, the Claude rules and the
         // skill links all go stale the same way.
         link::link_home_dir(ctx, &l.path(ctx))?;

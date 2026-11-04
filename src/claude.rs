@@ -15,7 +15,8 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
-/// Org rules are imported per directory instead of linked; see `link_org_rules`.
+/// Org rules are linked into each org directory, not `~/.claude/rules/`; see
+/// `link_org_rules`.
 const ORGS: &str = "orgs";
 
 fn entries(dir: &Path) -> Vec<PathBuf> {

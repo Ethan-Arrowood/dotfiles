@@ -1,7 +1,7 @@
 # Dock items, one path per line, optionally followed by dockutil flags.
 # Every selected layer's Dockfile is combined in layer order and the Dock is
 # set to exactly that; anything not installed is skipped. Trash is always
-# there -- macOS will not remove it.
+# there: macOS will not remove it.
 
 /System/Applications/System Settings.app
 /Applications/Safari.app

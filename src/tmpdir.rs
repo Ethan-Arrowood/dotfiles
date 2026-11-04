@@ -5,7 +5,7 @@
 //! `create_dir` fails if the path exists, which makes creation atomic against a
 //! pre-planted file or symlink, and 0700 means nothing inside can be reached,
 //! replaced, or symlink-swapped afterwards. Files created within therefore need
-//! no defence of their own -- which matters for anything that creates its
+//! no defence of their own, which matters for anything that creates its
 //! output at the caller's umask rather than explicitly.
 //!
 //! The directory removes itself on drop, including on error paths.
@@ -60,7 +60,7 @@ impl Drop for PrivateTempDir {
     }
 }
 
-/// Not cryptographic — only needs to avoid collisions between concurrent runs.
+/// Not cryptographic: only needs to avoid collisions between concurrent runs.
 /// Exclusivity comes from `create_dir`, not from unpredictability.
 fn nonce(attempt: u32) -> String {
     let pid = std::process::id();

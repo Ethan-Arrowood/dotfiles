@@ -1,7 +1,7 @@
 //! Work layer: Harper's agent CLIs, the dispatch client, dev-server aliases
 //! and the work password manager.
 //!
-//! No git identity override on purpose -- ethan@arrowood.dev is the identity
+//! No git identity override on purpose: ethan@arrowood.dev is the identity
 //! everywhere, including work repos. A domain you own outlives every employer,
 //! and an address you lose control of takes its commit attribution with it.
 

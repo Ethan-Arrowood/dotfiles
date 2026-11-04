@@ -74,7 +74,7 @@ pub fn detail(msg: &str) {
 }
 
 /// Ask a yes/no question. Returns false when there is no terminal to ask on
-/// (piped, CI, a subshell) rather than failing -- the caller treats that as
+/// (piped, CI, a subshell) rather than failing. The caller treats that as
 /// "not authorised", which is the safe default for anything outward-facing.
 pub fn confirm(question: &str, assume_yes: bool) -> bool {
     if assume_yes {
@@ -87,7 +87,7 @@ pub fn confirm(question: &str, assume_yes: bool) -> bool {
     else {
         println!(
             "{}",
-            format!("    ? {question} -- no terminal to ask on, assuming no")
+            format!("    ? {question} (no terminal to ask on, assuming no)")
                 .if_supports_color(Stdout, |t| t.dimmed())
         );
         return false;

@@ -4,7 +4,7 @@
 //! repository, which gets cloned once and then symlinked into
 //! `~/.claude/skills/`. Claude Code follows a symlinked skill directory and
 //! reads `SKILL.md` from the target, so the clone is simultaneously the
-//! installed skill and an editable checkout -- edit it in place and the change
+//! installed skill and an editable checkout. Edit it in place and the change
 //! is live, no re-sync step.
 //!
 //! Format mirrors the Brewfile: one entry per line, `#` comments allowed.
@@ -151,7 +151,7 @@ pub fn parse(text: &str) -> (Vec<Entry>, Vec<String>) {
                 name: name.to_string(),
             }),
             ("repo", Some(_)) => problems.push(format!(
-                "line {n}: `repo` takes no #skill suffix — use `skill {target}`"
+                "line {n}: `repo` takes no #skill suffix. Use `skill {target}`"
             )),
             ("skill", Some(k)) if !k.is_empty() => entries.push(Entry::Skill {
                 owner: owner.to_string(),
@@ -163,7 +163,7 @@ pub fn parse(text: &str) -> (Vec<Entry>, Vec<String>) {
                 name: name.to_string(),
             }),
             ("rules", Some(_)) => problems.push(format!(
-                "line {n}: `rules` takes no #suffix — use `rules {slug}`"
+                "line {n}: `rules` takes no #suffix. Use `rules {slug}`"
             )),
             ("hook", Some(path)) if !path.is_empty() => {
                 let agent = agent.expect("hook lines name an agent before the target");
@@ -191,10 +191,10 @@ pub fn parse(text: &str) -> (Vec<Entry>, Vec<String>) {
                 }
             }
             ("hook", _) => problems.push(format!(
-                "line {n}: `hook` needs a #path suffix — use `hook <agent> {slug}#<path> <Event>`"
+                "line {n}: `hook` needs a #path suffix. Use `hook <agent> {slug}#<path> <Event>`"
             )),
             ("skill", _) => problems.push(format!(
-                "line {n}: `skill` needs a #skill suffix — use `skill {slug}#<skill-name>`"
+                "line {n}: `skill` needs a #skill suffix. Use `skill {slug}#<skill-name>`"
             )),
             (other, _) => problems.push(format!("line {n}: unknown kind `{other}`")),
         }
@@ -218,7 +218,7 @@ fn checkout_path(ctx: &Ctx, owner: &str, name: &str) -> PathBuf {
     src_root(ctx).join(owner.to_lowercase()).join(name)
 }
 
-/// Clone if absent, otherwise leave it alone -- these are working checkouts
+/// Clone if absent, otherwise leave it alone: these are working checkouts
 /// the user edits, so pulling could stomp on in-flight work.
 pub(crate) fn ensure_clone(ctx: &Ctx, owner: &str, name: &str) -> Result<Option<PathBuf>> {
     let dest = checkout_path(ctx, owner, name);

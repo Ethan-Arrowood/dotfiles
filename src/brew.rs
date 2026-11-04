@@ -1,6 +1,6 @@
 //! Homebrew helpers and Brewfile parsing.
 //!
-//! Brewfiles here are a plain list -- `formula NAME`, `cask NAME`, `tap NAME`,
+//! Brewfiles here are a plain list: `formula NAME`, `cask NAME`, `tap NAME`,
 //! one per line, `#` comments allowed. Not `brew bundle` syntax, so there is
 //! no dependency on the bundle tap and a single bad entry stays non-fatal.
 
@@ -67,7 +67,7 @@ pub fn brew_bin() -> Option<PathBuf> {
 /// line by line does not work: Homebrew sets PATH through
 /// `eval "$(path_helper -s)"`, which has no `export ` prefix, and emits values
 /// like `"/opt/homebrew/share/info:${INFOPATH:-}"` that need shell expansion.
-/// A line parser drops PATH silently -- and then every later has()/which()
+/// A line parser drops PATH silently, and then every later has()/which()
 /// misses brew-installed tools on a fresh machine.
 ///
 /// So let a shell evaluate it and read the resulting environment back.

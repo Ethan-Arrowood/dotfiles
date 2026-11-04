@@ -16,13 +16,13 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-CI's `core-on-linux` job also installs the core profile in a container and asserts that a second run changes nothing, that a sandboxed `$HOME` blocks machine-global changes, and that an ssh-signed commit verifies.
+CI's `core-on-linux` job also runs real installs of the core profile in a container. It checks what core installs, that a second run prints no `ok` line, that a sandboxed `$HOME` blocks machine-global changes, and that an ssh-signed commit verifies. Nothing tests the macOS layers automatically, so check those with `dotfiles install -n`.
 
 ## Safety
 
 - Never run `dotfiles install` without `-n` on a real machine unless I ask. Test a real install against scratch directories: set `HOME`, `DOTFILES_SRC_DIR`, and `DOTFILES_ROOT`, and unset `CLAUDE_CONFIG_DIR` and `CODEX_HOME`.
 - Every change outside `$HOME` (packages, macOS defaults, the Dock, account state) goes through `sys::allow_global_changes()`.
-- Only `link::link_file` replaces a file, and it moves the old one to the backup directory first. Don't add another path that deletes or overwrites a user's file.
+- Never delete or overwrite a user's file without a backup. Use `link::link_file`, which moves the old file to the backup directory first, or `link::write_file` for files this tool generates. ARCHITECTURE.md lists every file the tool changes; keep that list complete.
 - This repo is public. No credentials, tokens, internal hostnames, or employer-internal details. Secrets live in Dashlane. Never read, write, or handle private key material.
 
 ## Design

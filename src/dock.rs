@@ -73,8 +73,8 @@ fn paths_in(plist: &str) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Resolved, so the Dock storing `/Applications/Safari.app` -- a symlink into
-/// the Safari cryptex -- or its target cannot make every run rewrite the Dock.
+/// Resolved, so the Dock storing `/Applications/Safari.app` (a symlink into
+/// the Safari cryptex) or its target cannot make every run rewrite the Dock.
 fn resolved(p: &Path) -> PathBuf {
     std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
 }

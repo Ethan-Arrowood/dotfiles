@@ -36,7 +36,7 @@ impl Ctx {
 
         // Deliberately NOT XDG_CONFIG_HOME-aware. layers/core/home/.gitconfig
         // has to name these include paths literally, and git does not expand
-        // environment variables in them -- so honoring XDG here would silently
+        // environment variables in them, so honoring XDG here would silently
         // stop signing and delta from ever applying on a machine that sets it.
         // Tests override this field directly.
         let state_dir = Self::state_dir_for(&home);
@@ -54,7 +54,7 @@ impl Ctx {
     }
 
     /// Locate the repo: an explicit override, else the directory above the
-    /// running binary, else the current directory -- whichever first contains
+    /// running binary, else the current directory, whichever first contains
     /// a `layers/` directory.
     pub fn find_root() -> Result<PathBuf> {
         if let Some(explicit) = std::env::var_os("DOTFILES_ROOT") {
@@ -62,7 +62,7 @@ impl Ctx {
             if p.join("layers").is_dir() {
                 // Absolute, always: symlink targets are stored verbatim, so a
                 // relative root yields links that resolve against $HOME and
-                // dangle -- after the real dotfiles have been displaced.
+                // dangle, after the real dotfiles have been displaced.
                 return Ok(std::fs::canonicalize(&p).unwrap_or(p));
             }
             bail!("DOTFILES_ROOT={} has no layers/ directory", p.display());
@@ -85,7 +85,7 @@ impl Ctx {
         // The root recorded by the last install. install.sh exports
         // DOTFILES_ROOT before handing over, so a first run never needs this;
         // it is for later invocations from a shell that does not have the
-        // variable set -- a bash shell, say, since no bashrc ships here.
+        // variable set (a bash shell, say, since no bashrc ships here).
         // Reading what was recorded beats guessing at likely paths.
         if let Some(recorded) = recorded_root() {
             candidates.push(recorded);

@@ -130,7 +130,7 @@ fn ssh_config(ctx: &Ctx, layer_dir: &Path) -> Result<()> {
             std::fs::create_dir_all(&ctx.backup_dir)?;
             std::fs::write(ctx.backup_dir.join("ssh_config"), &text)?;
             // If ~/.ssh/config is itself a symlink, fs::write follows it and
-            // edits the target -- which may well be a file tracked in this
+            // edits the target, which may well be a file tracked in this
             // repo. Replace the link instead.
             if std::fs::symlink_metadata(&cfg)
                 .map(|m| m.file_type().is_symlink())
@@ -253,7 +253,7 @@ fn login_shell(ctx: &Ctx) -> Result<()> {
     }
     // Read the account database, not $SHELL: $SHELL is set at login, so after a
     // successful chsh this session still reports the old value and would
-    // re-prompt on every run -- and macOS chsh asks for a password.
+    // re-prompt on every run, and macOS chsh asks for a password.
     let current =
         sys::login_shell_of_record().unwrap_or_else(|| std::env::var("SHELL").unwrap_or_default());
     // Compare resolved paths: on a usrmerged system `which` finds

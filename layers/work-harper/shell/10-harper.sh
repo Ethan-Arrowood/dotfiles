@@ -1,5 +1,6 @@
 # Harper local dev servers. Paths assume the standard ~/dev/harperfast layout;
-# override HARPER_DEV_ROOT in ~/.zshrc.local if yours differs.
+# set HARPER_DEV_ROOT in ~/.zshenv.local if yours differs (~/.zshrc.local
+# loads after these aliases are defined).
 #
 # The credentials below are throwaway values for a local-only instance.
 
@@ -7,7 +8,7 @@ HARPER_DEV_ROOT="${HARPER_DEV_ROOT:-$HOME/dev/harperfast}"
 
 alias harper="node $HARPER_DEV_ROOT/harper/dist/bin/harper.js"
 # A function, not an alias: an alias bakes $HOME in at source time, so an
-# empty $HOME would expand to `rm -rf /harper`. Confirms first -- both of these
+# empty $HOME would expand to `rm -rf /harper`. Confirms first: both of these
 # also delete ~/.harperdb, and they are one character apart.
 harper-clear() {
   printf 'remove %s and %s? [y/N] ' "$HOME/harper" "$HOME/.harperdb"
