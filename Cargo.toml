@@ -2,7 +2,7 @@
 name = "dotfiles"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.74"
+rust-version = "1.85"
 description = "Compose a machine from layers"
 license = "MIT"
 

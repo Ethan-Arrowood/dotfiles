@@ -159,6 +159,7 @@ fn install(ctx: &Ctx, args: InstallArgs) -> Result<()> {
         bail!("aborted");
     }
 
+    let mut claimed = skills::Claimed::new();
     for l in &selected {
         ui::head(&format!("Layer: {} — {}", l.name, l.description));
         (l.install)(ctx, l)?;
@@ -166,7 +167,7 @@ fn install(ctx: &Ctx, args: InstallArgs) -> Result<()> {
         // rather than by adding code: home/ -> $HOME, Skillfile -> cloned
         // and symlinked skills and Claude rules.
         link::link_home_dir(ctx, &l.path(ctx))?;
-        skills::install(ctx, l)?;
+        skills::install(ctx, l, &mut claimed)?;
     }
     dock::apply(ctx, &selected)?;
 
@@ -234,7 +235,7 @@ fn next_steps(ctx: &Ctx) {
     if !signing_include.exists() {
         if key.exists() {
             steps.push(
-                "commits are unsigned — enable it with:  dotfiles install --signing ssh".into(),
+                "commits are unsigned (--no-signing) — to sign, re-run without it:  dotfiles install".into(),
             );
         } else {
             steps.push(
@@ -349,6 +350,7 @@ fn relink(ctx: &Ctx) -> Result<()> {
         bail!("nothing installed yet — run `dotfiles install` first");
     };
     ui::head("Re-linking managed files");
+    let mut claimed = skills::Claimed::new();
     for n in names {
         let Some(l) = layer::find(&n) else {
             ui::warn(&format!("unknown layer in recorded state: {n}"));
@@ -358,7 +360,7 @@ fn relink(ctx: &Ctx) -> Result<()> {
         // documented repair tool, and ssh config.d, the Claude rules and the
         // skill links all go stale the same way.
         link::link_home_dir(ctx, &l.path(ctx))?;
-        skills::install(ctx, &l)?;
+        skills::install(ctx, &l, &mut claimed)?;
     }
     ui::detail("ssh and app configs are re-linked by `dotfiles install`");
     Ok(())

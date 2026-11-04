@@ -23,5 +23,5 @@ wt() {
 }
 
 openssl_crt() { [ -n "$1" ] || { echo "usage: openssl_crt <cert>"; return 1; }; openssl x509 -in "$1" -text -noout; }
-openssl_key() { [ -n "$1" ] || { echo "usage: openssl_key <key>";  return 1; }; openssl rsa  -in "$1" -check; }
+openssl_key() { [ -n "$1" ] || { echo "usage: openssl_key <key>";  return 1; }; openssl rsa  -in "$1" -check -noout; }
 openssl_csr() { [ -n "$1" ] || { echo "usage: openssl_csr <csr>";  return 1; }; openssl req  -in "$1" -text -noout -verify; }

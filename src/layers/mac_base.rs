@@ -141,6 +141,16 @@ fn parse_defaults(text: &str, home: &Path) -> (Vec<Setting>, Vec<String>) {
             continue;
         }
         let value = f[3..].join(" ");
+        let valid = match f[2] {
+            "-bool" => ["true", "false", "YES", "NO", "1", "0"].contains(&value.as_str()),
+            "-int" => value.parse::<i64>().is_ok(),
+            "-float" => value.parse::<f64>().is_ok(),
+            _ => true,
+        };
+        if !valid {
+            problems.push(format!("line {}: `{value}` is not a valid {}", n + 1, f[2]));
+            continue;
+        }
         let value = match value.strip_prefix("~/") {
             Some(rest) => home.join(rest).to_string_lossy().into_owned(),
             None => value,
@@ -206,7 +216,7 @@ fn macos_defaults(ctx: &Ctx, layer: &Layer) -> Result<()> {
 }
 
 /// `defaults read` for one key, or None when unset.
-fn current_default(domain: &str, key: &str) -> Option<String> {
+pub(crate) fn current_default(domain: &str, key: &str) -> Option<String> {
     let out = Cmd::new("defaults")
         .args(["read", domain, key])
         .capture()
@@ -219,7 +229,7 @@ fn current_default(domain: &str, key: &str) -> Option<String> {
 
 /// `defaults read` prints booleans as 0/1 and floats without a trailing
 /// fraction, so compare in that form rather than against the literal we pass.
-fn normalized(kind: &str, value: &str) -> String {
+pub(crate) fn normalized(kind: &str, value: &str) -> String {
     match kind {
         "-bool" => match value {
             "true" | "YES" | "1" => "1".into(),

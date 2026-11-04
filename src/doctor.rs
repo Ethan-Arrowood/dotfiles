@@ -86,7 +86,7 @@ pub fn run(ctx: &Ctx) -> Result<bool> {
 
     let ssh_config = ctx.home.join(".ssh/config");
     if std::fs::read_to_string(&ssh_config)
-        .map(|t| t.contains("config.d/"))
+        .map(|t| crate::layers::core::includes_config_d(&t))
         .unwrap_or(false)
     {
         r.ok("~/.ssh/config includes config.d/");
@@ -118,12 +118,12 @@ pub fn run(ctx: &Ctx) -> Result<bool> {
 
     // signing
     let signing_key = Cmd::new("git")
-        .args(["config", "--global", "user.signingkey"])
+        .args(["config", "--global", "--includes", "user.signingkey"])
         .capture()
         .map(|c| c.trimmed().to_string())
         .unwrap_or_default();
     let format = Cmd::new("git")
-        .args(["config", "--global", "gpg.format"])
+        .args(["config", "--global", "--includes", "gpg.format"])
         .capture()
         .map(|c| c.trimmed().to_string())
         .unwrap_or_else(|_| "openpgp".into());

@@ -25,6 +25,13 @@ VERSION="${DOTFILES_VERSION:-latest}"
 say() { printf '==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
+# A dry run passes through to `dotfiles install -n`. Before that, this script
+# must not install anything or move the checkout either.
+dry_run=
+for a in "$@"; do
+  case "$a" in -n|--dry-run) dry_run=1 ;; esac
+done
+
 for tool in curl tar; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
 done
@@ -59,6 +66,7 @@ if ! git --version >/dev/null 2>&1; then
     die "git is required"
   fi
   say "git is not usable yet — the Xcode Command Line Tools are missing"
+  [ -z "$dry_run" ] || die "dry run: would install the Command Line Tools; nothing else can run without git"
   if ! install_clt; then
     # No tty for sudo, softwareupdate restricted by MDM, or Apple changed the
     # sentinel. Fall back to the GUI installer and a second run.
@@ -72,7 +80,9 @@ if ! git --version >/dev/null 2>&1; then
 fi
 
 # --- repo ---
-if [ -d "$REPO_DIR/.git" ]; then
+if [ -d "$REPO_DIR/.git" ] && [ -n "$dry_run" ]; then
+  say "dry run: leaving $REPO_DIR as it is"
+elif [ -d "$REPO_DIR/.git" ]; then
   say "updating $REPO_DIR"
   git -C "$REPO_DIR" pull --ff-only || say "(pull skipped -- local changes?)"
 else
@@ -86,9 +96,11 @@ case "$(uname -s)" in
   Darwin) os=apple-darwin ;;
   Linux)
     os=unknown-linux-gnu
-    # The published builds are glibc-linked; on musl (Alpine) they will not run.
+    # The published builds are glibc-linked; on musl (Alpine) they will not
+    # run, so build from source there instead of downloading one.
     if [ -f /etc/alpine-release ] || ! ldd --version 2>&1 | grep -qi glibc; then
-      say "warning: this looks like a musl system; the prebuilt binary is glibc-linked"
+      say "this looks like a musl system; the prebuilt binary is glibc-linked"
+      musl=1
     fi
     ;;
   *) die "unsupported OS: $(uname -s)" ;;
@@ -109,9 +121,10 @@ fi
 say "fetching dotfiles-${target}"
 mkdir -p "$BIN_DIR"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT INT TERM
+trap 'rm -rf "$tmp"' EXIT
+trap 'rm -rf "$tmp"; exit 130' INT TERM
 
-if curl -fsSL "$url" -o "$tmp/dotfiles.tar.gz" 2>"$tmp/curl.err"; then
+if [ -z "${musl:-}" ] && curl -fsSL "$url" -o "$tmp/dotfiles.tar.gz" 2>"$tmp/curl.err"; then
   tar -xzf "$tmp/dotfiles.tar.gz" -C "$tmp"
   mv "$tmp/dotfiles" "$BIN_DIR/dotfiles"
   chmod +x "$BIN_DIR/dotfiles"
@@ -119,8 +132,10 @@ if curl -fsSL "$url" -o "$tmp/dotfiles.tar.gz" 2>"$tmp/curl.err"; then
 else
   # Could be a missing release, but equally a DNS failure, a proxy, or a rate
   # limit -- so show what curl actually said rather than guessing.
-  say "could not download $url"
-  [ -s "$tmp/curl.err" ] && sed 's/^/    /' "$tmp/curl.err"
+  if [ -z "${musl:-}" ]; then
+    say "could not download $url"
+    [ -s "$tmp/curl.err" ] && sed 's/^/    /' "$tmp/curl.err"
+  fi
   if command -v cargo >/dev/null 2>&1; then
     say "building from source instead"
     ( cd "$REPO_DIR" && cargo build --release )

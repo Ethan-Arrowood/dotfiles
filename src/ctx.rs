@@ -124,12 +124,32 @@ impl Ctx {
 /// The repo path the last `dotfiles install` recorded, read back out of the
 /// shell init it generated. That file is the single source of truth for where
 /// this machine's checkout is.
+/// Undo `shellinit::sh_quote`: `'it'\\''s'` -> `it's`.
+fn unquote(v: &str) -> String {
+    match v.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')) {
+        Some(inner) => inner.replace("'\\''", "'"),
+        None => v.trim_matches('"').to_string(),
+    }
+}
+
 fn recorded_root() -> Option<PathBuf> {
     let home = dirs::home_dir()?;
     let text = std::fs::read_to_string(Ctx::state_dir_for(&home).join("init.sh")).ok()?;
     text.lines()
         .find_map(|l| l.strip_prefix("export DOTFILES_ROOT="))
-        .map(|v| v.trim().trim_matches('\'').trim_matches('"'))
+        .map(|v| unquote(v.trim()))
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unquote_reverses_sh_quote() {
+        let q = crate::shellinit::sh_quote("/it's/here");
+        assert_eq!(unquote(&q), "/it's/here");
+        assert_eq!(unquote("\"/plain\""), "/plain");
+    }
 }

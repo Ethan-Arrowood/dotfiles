@@ -105,10 +105,14 @@ fn python(ctx: &Ctx) -> Result<()> {
     }
     if sys::has("uv") {
         ui::skip("uv already installed");
-        let _ = Cmd::new("uv")
-            .args(["self", "update"])
-            .run(ctx, "uv self update");
-        return Ok(());
+        // Network and version churn on every run otherwise; rustup above
+        // follows the same rule.
+        if ctx.update {
+            let _ = Cmd::new("uv")
+                .args(["self", "update"])
+                .run(ctx, "uv self update");
+        }
+        return python_313(ctx);
     }
     if ctx.dry_run {
         ui::dry("install uv");
@@ -141,6 +145,20 @@ fn python(ctx: &Ctx) -> Result<()> {
         if let Ok(joined) = std::env::join_paths(paths) {
             std::env::set_var("PATH", joined);
         }
+    }
+    python_313(ctx)
+}
+
+/// Checked on its own, so a run after a failed Python install retries it.
+fn python_313(ctx: &Ctx) -> Result<()> {
+    if !ctx.dry_run
+        && Cmd::new("uv")
+            .args(["python", "find", "3.13"])
+            .capture()
+            .is_ok_and(|c| c.ok)
+    {
+        ui::skip("python 3.13 already installed");
+        return Ok(());
     }
     if !Cmd::new("uv")
         .args(["python", "install", "3.13"])

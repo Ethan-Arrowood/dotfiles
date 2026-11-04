@@ -61,20 +61,35 @@ fn ensure_scope(ctx: &Ctx, want: &str) -> bool {
 /// Is this public key already registered, for the given type?
 /// `None` means "cannot tell" (usually a missing scope), which must not be
 /// treated as "absent".
+///
+/// `gh ssh-key list` has no type filter: it lists both kinds, with the type
+/// in the last tab-separated column. Without the signing scope it still
+/// exits 0, lists only authentication keys, and warns on stderr.
 fn registered(pubkey_body: &str, kind: Option<&str>) -> Option<bool> {
-    let mut cmd = Cmd::new("gh").args(["ssh-key", "list"]);
-    if let Some(k) = kind {
-        cmd = cmd.args(["--type", k]);
-    }
-    let out = cmd.capture().ok()?;
+    let out = Cmd::new("gh").args(["ssh-key", "list"]).capture().ok()?;
     if !out.ok {
         return None;
     }
-    Some(out.stdout.contains(pubkey_body))
+    let kind = kind.unwrap_or("authentication");
+    if kind == "signing" && out.stderr.contains("ssh_signing_key") {
+        return None;
+    }
+    Some(listed(&out.stdout, pubkey_body, kind))
+}
+
+fn listed(stdout: &str, pubkey_body: &str, kind: &str) -> bool {
+    stdout
+        .lines()
+        .any(|l| l.contains(pubkey_body) && l.rsplit('\t').next() == Some(kind))
 }
 
 pub fn run(ctx: &Ctx) -> Result<()> {
     ui::head("GitHub key setup");
+    // Uploading keys changes the real GitHub account, which a sandboxed
+    // $HOME with inherited gh credentials would otherwise reach.
+    if !sys::allow_global_changes() {
+        return Ok(());
+    }
     if !sys::has("gh") {
         bail!("gh is not installed (brew install gh)");
     }
@@ -116,7 +131,7 @@ pub fn run(ctx: &Ctx) -> Result<()> {
 
     // Only offer the signing upload when git actually signs with ssh.
     let format = Cmd::new("git")
-        .args(["config", "--global", "gpg.format"])
+        .args(["config", "--global", "--includes", "gpg.format"])
         .capture()
         .map(|c| c.trimmed().to_string())
         .unwrap_or_default();
@@ -264,4 +279,19 @@ fn verify(ctx: &Ctx) {
     }
     let _ = ctx;
     println!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn listed_matches_the_key_and_its_type() {
+        let out = "Laptop\t1\tssh-ed25519 AAAA\t2026-01-01\tauthentication\n\
+                   Laptop (signing)\t2\tssh-ed25519 BBBB\t2026-01-01\tsigning\n";
+        assert!(listed(out, "AAAA", "authentication"));
+        assert!(!listed(out, "AAAA", "signing"));
+        assert!(listed(out, "BBBB", "signing"));
+        assert!(!listed(out, "BBBB", "authentication"));
+    }
 }

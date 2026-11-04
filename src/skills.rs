@@ -133,9 +133,16 @@ pub fn parse(text: &str) -> (Vec<Entry>, Vec<String>) {
             problems.push(format!("line {n}: `{slug}` is not <owner>/<repo>"));
             continue;
         };
-        if owner.is_empty() || name.is_empty() {
+        if owner.is_empty() || name.is_empty() || name.contains('/') {
             problems.push(format!("line {n}: `{slug}` is not <owner>/<repo>"));
             continue;
+        }
+        // Only `hook` takes more words (the event and timeout).
+        if kind != "hook" {
+            if let Some(extra) = parts.next() {
+                problems.push(format!("line {n}: unexpected `{extra}` after `{target}`"));
+                continue;
+            }
         }
 
         match (kind, skill) {
@@ -195,11 +202,14 @@ pub fn parse(text: &str) -> (Vec<Entry>, Vec<String>) {
     (entries, problems)
 }
 
-/// Where repo checkouts live.
-fn src_root(ctx: &Ctx) -> PathBuf {
-    std::env::var_os("DOTFILES_SRC_DIR")
+/// Where repo checkouts live. Made absolute, because a relative
+/// DOTFILES_SRC_DIR would end up inside symlink targets and hook commands,
+/// where it resolves against a different directory.
+pub(crate) fn src_root(ctx: &Ctx) -> PathBuf {
+    let p = std::env::var_os("DOTFILES_SRC_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| ctx.home.join("dev"))
+        .unwrap_or_else(|| ctx.home.join("dev"));
+    std::path::absolute(&p).unwrap_or(p)
 }
 
 /// Checkout path for a repo. The owner segment is lowercased so
@@ -235,20 +245,30 @@ pub(crate) fn ensure_clone(ctx: &Ctx, owner: &str, name: &str) -> Result<Option<
         std::fs::create_dir_all(parent)?;
     }
 
-    // gh handles auth for private and internal repos; plain git works once the
-    // core layer's ssh key is registered.
-    let ok = if sys::has("gh") {
-        Cmd::new("gh")
+    // A public repo clones over HTTPS with no credentials, which a fresh
+    // machine has none of yet (core runs before gh is installed, and before
+    // the ssh key is registered). The prompt is off so a private repo fails
+    // fast instead of asking. Then gh, which handles private and internal
+    // repos, then ssh.
+    let https = format!("https://github.com/{slug}.git");
+    let mut ok = Cmd::new("git")
+        .args(["clone", "--quiet", &https])
+        .arg(dest.to_string_lossy())
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .run(ctx, &format!("git clone {https}"))?;
+    if !ok && sys::has("gh") {
+        ok = Cmd::new("gh")
             .args(["repo", "clone", &slug])
             .arg(dest.to_string_lossy())
-            .run(ctx, &format!("gh repo clone {slug}"))?
-    } else {
-        Cmd::new("git")
+            .run(ctx, &format!("gh repo clone {slug}"))?;
+    }
+    if !ok {
+        ok = Cmd::new("git")
             .arg("clone")
             .arg(format!("git@github.com:{slug}.git"))
             .arg(dest.to_string_lossy())
-            .run(ctx, &format!("git clone {slug}"))?
-    };
+            .run(ctx, &format!("git clone {slug} over ssh"))?;
+    }
     if !ok {
         ui::warn(&format!(
             "could not clone {slug} (private? not authenticated?)"
@@ -299,7 +319,13 @@ pub fn discover(root: &Path, max_depth: usize) -> Vec<PathBuf> {
 
 const MAX_DEPTH: usize = 2;
 
-pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
+/// Skill names already linked in this run, and the repo that linked each.
+/// Shared across layers: two layers naming the same skill would otherwise
+/// relink it back and forth, and the second run would hit the first run's
+/// backup.
+pub type Claimed = std::collections::HashMap<String, String>;
+
+pub fn install(ctx: &Ctx, layer: &Layer, claimed: &mut Claimed) -> Result<()> {
     let path = layer.path(ctx).join("Skillfile");
     if !path.is_file() {
         return Ok(());
@@ -319,10 +345,6 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
     if !ctx.dry_run {
         std::fs::create_dir_all(&dest_dir)?;
     }
-
-    // Two repos declaring the same skill name would each link over the other,
-    // churning the loser into the backup directory on every run.
-    let mut claimed: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
     // Several entries usually name the same repo; clone (or report) it once.
     let mut checkouts: std::collections::HashMap<String, Option<PathBuf>> =
@@ -515,7 +537,9 @@ mod tests {
              skill a/b\n\
              repo a/b#c\n\
              bogus a/b\n\
-             repo good/one\n",
+             repo good/one\n\
+             repo a/b/c\n\
+             repo a/b extra\n",
         );
         assert_eq!(
             e,
@@ -524,7 +548,7 @@ mod tests {
                 name: "one".into()
             }]
         );
-        assert_eq!(p.len(), 4, "{p:?}");
+        assert_eq!(p.len(), 6, "{p:?}");
         assert!(p[0].contains("line 1"));
         assert!(p[1].contains("line 2") && p[1].contains("#skill"));
         assert!(p[2].contains("line 3") && p[2].contains("no #skill"));

@@ -69,17 +69,21 @@ fn link_org_rules(ctx: &Ctx, orgs_dir: &Path, src_root: &Path) -> Result<()> {
     if rules.is_empty() {
         return Ok(());
     }
+    let mut linked = false;
     for rule in rules {
         let dir = src_root.join(rule.file_stem().unwrap());
         if !dir.is_dir() {
             continue;
         }
-        remove_old_import(ctx, &rule, &dir.join("CLAUDE.md"))?;
         let dst = dir.join("AGENTS.md");
         let ours = std::fs::read_link(&dst).is_ok_and(|t| t == rule);
         let dangling = dst.is_symlink() && !dst.exists();
         if ours || dangling || !dst.exists() {
+            // Only once the AGENTS.md link is (or will be) ours: removing the
+            // old import otherwise leaves the org with no rules at all.
+            remove_old_import(ctx, &rule, &dir.join("CLAUDE.md"))?;
             link::link_file(ctx, &rule, &dst)?;
+            linked = true;
         } else {
             ui::warn(&format!(
                 "{} exists and is not a link to {}; leaving it",
@@ -88,7 +92,10 @@ fn link_org_rules(ctx: &Ctx, orgs_dir: &Path, src_root: &Path) -> Result<()> {
             ));
         }
     }
-    load_agents_md_beside_claude_md(ctx)
+    if linked {
+        load_agents_md_beside_claude_md(ctx)?;
+    }
+    Ok(())
 }
 
 /// Older versions of this tool and of agentic's hook imported org rules from

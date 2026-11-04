@@ -108,6 +108,13 @@ pub fn apply(ctx: &Ctx, layers: &[Layer]) -> Result<()> {
         return Ok(());
     }
     items.retain(|i| {
+        if !i.path.is_absolute() {
+            ui::warn(&format!(
+                "Dockfile: `{}` is not an absolute or ~/ path; skipping it",
+                i.path.display()
+            ));
+            return false;
+        }
         let present = i.path.exists();
         if !present {
             ui::skip(&format!("{} (not installed)", ctx.pretty(&i.path)));
@@ -117,7 +124,15 @@ pub fn apply(ctx: &Ctx, layers: &[Layer]) -> Result<()> {
 
     let (apps, others): (Vec<&Item>, Vec<&Item>) = items.iter().partition(|i| i.is_app());
     let want = |v: &[&Item]| v.iter().map(|i| resolved(&i.path)).collect::<Vec<_>>();
-    if current("persistent-apps") == want(&apps) && current("persistent-others") == want(&others) {
+    // The Dock's plist stores view and sort settings as numbers that don't
+    // map one to one onto dockutil's flags, so compare paths there and the
+    // flags against what the last successful run applied.
+    let spec = spec(&items);
+    let applied = ctx.state_dir.join("dock.applied");
+    if current("persistent-apps") == want(&apps)
+        && current("persistent-others") == want(&others)
+        && std::fs::read_to_string(&applied).is_ok_and(|t| t == spec)
+    {
         ui::skip("Dock already set");
         return Ok(());
     }
@@ -126,13 +141,13 @@ pub fn apply(ctx: &Ctx, layers: &[Layer]) -> Result<()> {
         return Ok(());
     }
 
-    Cmd::new("dockutil")
+    let mut failed = !Cmd::new("dockutil")
         .args(["--remove", "all", "--no-restart"])
         .quiet()
         .run(ctx, "clear the Dock")?;
     for i in apps.iter().chain(&others) {
         let section = if i.is_app() { "apps" } else { "others" };
-        Cmd::new("dockutil")
+        failed |= !Cmd::new("dockutil")
             .arg("--add")
             .arg(i.path.to_string_lossy())
             .args(["--section", section])
@@ -143,9 +158,25 @@ pub fn apply(ctx: &Ctx, layers: &[Layer]) -> Result<()> {
     }
     if !ctx.dry_run {
         let _ = Cmd::new("killall").arg("Dock").capture();
-        ui::ok("Dock set");
+        if failed {
+            // Not recorded, so the next run tries again.
+            ui::warn("some dockutil commands failed; the Dock may be incomplete");
+        } else {
+            std::fs::create_dir_all(&ctx.state_dir)?;
+            std::fs::write(&applied, &spec)?;
+            ui::ok("Dock set");
+        }
     }
     Ok(())
+}
+
+/// The Dock as the Dockfiles describe it, one item per line, for comparing
+/// with the last applied run.
+fn spec(items: &[Item]) -> String {
+    items
+        .iter()
+        .map(|i| format!("{} {}\n", i.path.display(), i.flags.join(" ")))
+        .collect()
 }
 
 #[cfg(test)]

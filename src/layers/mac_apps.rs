@@ -2,6 +2,7 @@
 
 use crate::ctx::Ctx;
 use crate::layer::Layer;
+use crate::layers::mac_base::{current_default, normalized};
 use crate::sys::{self, Cmd};
 use crate::{brew, link, ui};
 use anyhow::Result;
@@ -92,7 +93,15 @@ fn chrome_defaults(ctx: &Ctx) -> Result<()> {
         ("MetricsReportingEnabled", "-bool", "false"),
         ("RestoreOnStartup", "-int", "1"),
     ];
+    let mut changed = false;
     for (key, kind, value) in policies {
+        // Read first, as the Defaultsfile does, so a second run writes nothing.
+        if current_default("com.google.Chrome", key).as_deref()
+            == Some(normalized(kind, value).as_str())
+        {
+            continue;
+        }
+        changed = true;
         Cmd::new("defaults")
             .args(["write", "com.google.Chrome", key, kind, value])
             .run(
@@ -100,6 +109,12 @@ fn chrome_defaults(ctx: &Ctx) -> Result<()> {
                 &format!("defaults write com.google.Chrome {key} {value}"),
             )?;
     }
-    ui::warn("Chrome policy changes need a full restart of Chrome; confirm at chrome://policy");
+    if changed {
+        ui::detail(
+            "Chrome policy changes need a full restart of Chrome; confirm at chrome://policy",
+        );
+    } else {
+        ui::skip("Chrome policies already set");
+    }
     Ok(())
 }

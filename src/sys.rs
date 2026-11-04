@@ -185,6 +185,17 @@ unsafe fn libc_geteuid() -> u32 {
 }
 
 /// Best-effort system package install, used only to get zsh and git present.
+/// The OpenSSH client's package name, which differs by package manager.
+pub fn ssh_client_package() -> &'static str {
+    if has("dnf") {
+        "openssh-clients"
+    } else if has("pacman") || has("brew") {
+        "openssh"
+    } else {
+        "openssh-client"
+    }
+}
+
 pub fn sys_install(ctx: &Ctx, pkgs: &[&str]) -> Result<bool> {
     // Guarded here rather than at the call site: this escalates to root and
     // mutates the machine, so it must not depend on a caller remembering.
@@ -235,7 +246,7 @@ pub fn sys_install(ctx: &Ctx, pkgs: &[&str]) -> Result<bool> {
 /// For a safety check, "I could not tell" must mean "do not".
 /// DOTFILES_ALLOW_SANDBOXED_HOME=1 is the escape hatch.
 pub fn home_is_sandboxed() -> Sandbox {
-    if std::env::var_os("DOTFILES_ALLOW_SANDBOXED_HOME").is_some() {
+    if override_set(std::env::var_os("DOTFILES_ALLOW_SANDBOXED_HOME")) {
         return Sandbox::No;
     }
     let Some(env_home) = dirs::home_dir() else {
@@ -252,6 +263,11 @@ pub fn home_is_sandboxed() -> Sandbox {
     } else {
         Sandbox::Yes
     }
+}
+
+/// Only the documented value counts, so `=0` or an empty value keeps the guard.
+fn override_set(v: Option<std::ffi::OsString>) -> bool {
+    v.is_some_and(|v| v == "1")
 }
 
 pub enum Sandbox {
@@ -323,6 +339,16 @@ fn current_username() -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// Why global changes are blocked, or `None` when they are allowed. Only a
+/// confirmed real home allows them.
+fn blocked_because(s: Sandbox) -> Option<String> {
+    match s {
+        Sandbox::No => None,
+        Sandbox::Yes => Some("sandboxed $HOME detected".to_string()),
+        Sandbox::Unknown(reason) => Some(format!("cannot verify $HOME ({reason})")),
+    }
+}
+
 /// Guard for anything that changes machine-global state.
 ///
 /// Reports at most once per run; it is consulted from a dozen call sites and
@@ -331,12 +357,11 @@ pub fn allow_global_changes() -> bool {
     use std::sync::atomic::{AtomicBool, Ordering};
     static REPORTED: AtomicBool = AtomicBool::new(false);
 
-    let (blocked, why) = match home_is_sandboxed() {
-        Sandbox::No => return true,
-        Sandbox::Yes => (true, "sandboxed $HOME detected".to_string()),
-        Sandbox::Unknown(reason) => (true, format!("cannot verify $HOME ({reason})")),
+    let why = match blocked_because(home_is_sandboxed()) {
+        None => return true,
+        Some(why) => why,
     };
-    if blocked && !REPORTED.swap(true, Ordering::Relaxed) {
+    if !REPORTED.swap(true, Ordering::Relaxed) {
         crate::ui::skip(&format!(
             "{why}: skipping machine-global changes \
              (set DOTFILES_ALLOW_SANDBOXED_HOME=1 to override)"
@@ -455,15 +480,19 @@ mod tests {
     #[test]
     fn unknown_is_treated_as_sandboxed() {
         // The direction that matters: "cannot tell" must block, not allow.
-        let unknown = Sandbox::Unknown("test");
-        assert!(
-            matches!(unknown, Sandbox::Unknown(_)),
-            "Unknown must exist as a distinct state"
-        );
-        // And the override must still win.
-        std::env::set_var("DOTFILES_ALLOW_SANDBOXED_HOME", "1");
-        assert!(matches!(home_is_sandboxed(), Sandbox::No));
-        std::env::remove_var("DOTFILES_ALLOW_SANDBOXED_HOME");
+        assert!(blocked_because(Sandbox::Unknown("test")).is_some());
+        assert!(blocked_because(Sandbox::Yes).is_some());
+        assert!(blocked_because(Sandbox::No).is_none());
+    }
+
+    /// Pure, so it doesn't set the variable while other tests read $HOME.
+    #[test]
+    fn only_the_documented_override_value_counts() {
+        assert!(override_set(Some("1".into())));
+        for v in ["0", "", "true", "yes"] {
+            assert!(!override_set(Some(v.into())), "{v:?}");
+        }
+        assert!(!override_set(None));
     }
 
     #[test]

@@ -114,7 +114,15 @@ pub fn link_home_dir(ctx: &Ctx, layer_dir: &Path) -> Result<()> {
 }
 
 /// Write a generated (non-symlinked) file.
+/// Write a file this tool generates. Unchanged content is left alone, so a
+/// second run writes nothing, and a symlink in the way is replaced rather
+/// than written through to whatever it points at.
 pub fn write_file(ctx: &Ctx, dst: &Path, content: &str) -> Result<()> {
+    let is_link = dst.is_symlink();
+    if !is_link && fs::read_to_string(dst).is_ok_and(|t| t == content) {
+        ui::skip(&format!("{} (unchanged)", ctx.pretty(dst)));
+        return Ok(());
+    }
     if ctx.dry_run {
         ui::dry(&format!(
             "write {} ({} lines)",
@@ -125,6 +133,9 @@ pub fn write_file(ctx: &Ctx, dst: &Path, content: &str) -> Result<()> {
     }
     if let Some(parent) = dst.parent() {
         fs::create_dir_all(parent)?;
+    }
+    if is_link {
+        fs::remove_file(dst)?;
     }
     fs::write(dst, content).with_context(|| format!("writing {}", dst.display()))?;
     ui::ok(&format!("wrote {}", ctx.pretty(dst)));

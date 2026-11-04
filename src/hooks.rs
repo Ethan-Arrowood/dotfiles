@@ -144,8 +144,18 @@ pub(crate) fn edit_json(
         Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
     };
 
-    if !edit(&mut settings)? {
-        return Ok(());
+    // A value of the wrong shape (`hooks` not an object, say) is the same
+    // case as a file that doesn't parse: warn and leave it, don't abort.
+    match edit(&mut settings) {
+        Ok(true) => {}
+        Ok(false) => return Ok(()),
+        Err(e) => {
+            ui::warn(&format!(
+                "{}: {e:#}; not changing it to {what}",
+                ctx.pretty(path)
+            ));
+            return Ok(());
+        }
     }
     if ctx.dry_run {
         ui::dry(&format!("{what} in {}", ctx.pretty(path)));
@@ -166,7 +176,20 @@ pub(crate) fn edit_json(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(path, out).with_context(|| format!("writing {}", path.display()))?;
+    // Write a sibling and rename it over the original, so a running agent
+    // never reads a half-written file. Keep the original's mode (often 0600),
+    // and if the file is a symlink, replace its target, not the link.
+    let target = if path.is_symlink() {
+        std::fs::canonicalize(path).with_context(|| format!("resolving {}", path.display()))?
+    } else {
+        path.to_path_buf()
+    };
+    let tmp = target.with_extension(format!("json.dotfiles-{}", std::process::id()));
+    std::fs::write(&tmp, out).with_context(|| format!("writing {}", tmp.display()))?;
+    if let Ok(meta) = std::fs::metadata(&target) {
+        std::fs::set_permissions(&tmp, meta.permissions())?;
+    }
+    std::fs::rename(&tmp, &target).with_context(|| format!("replacing {}", target.display()))?;
     ui::ok(&format!("{what} in {}", ctx.pretty(path)));
     Ok(())
 }
@@ -230,8 +253,14 @@ fn run_once(ctx: &Ctx, agent: Agent, script: &Path) -> Result<()> {
     for d in agent.install_dirs(ctx) {
         std::fs::create_dir_all(&d).with_context(|| format!("creating {}", d.display()))?;
     }
+    // agentic's hooks read AGENTIC_DEV_DIR for where org directories live.
+    // Point it at the same place the Skillfile entries use.
     let out = Cmd::new(script.to_string_lossy())
         .env(agent.config_env(), agent.config_dir(ctx).to_string_lossy())
+        .env(
+            "AGENTIC_DEV_DIR",
+            crate::skills::src_root(ctx).to_string_lossy(),
+        )
         .capture()?;
     for line in out.combined().lines().filter(|l| !l.trim().is_empty()) {
         ui::detail(line);

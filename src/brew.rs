@@ -29,7 +29,7 @@ pub fn parse(text: &str) -> (Vec<Entry>, Vec<String>) {
             continue;
         }
         let mut parts = line.split_whitespace();
-        let (Some(kind), Some(name)) = (parts.next(), parts.next()) else {
+        let (Some(kind), Some(name), None) = (parts.next(), parts.next(), parts.next()) else {
             problems.push(format!(
                 "line {}: expected `<kind> <name>`, got `{line}`",
                 i + 1
@@ -176,8 +176,11 @@ fn cask_app_name(name: &str) -> Option<String> {
     })
 }
 
+// The installed checks below run in dry-run too: they only read, and without
+// them `-n` lists every package as an install.
+
 pub fn install_formula(ctx: &Ctx, name: &str) -> Result<()> {
-    if !ctx.dry_run && has_formula(name) {
+    if has_formula(name) {
         ui::skip(name);
         return Ok(());
     }
@@ -191,16 +194,14 @@ pub fn install_formula(ctx: &Ctx, name: &str) -> Result<()> {
 }
 
 pub fn install_cask(ctx: &Ctx, name: &str) -> Result<()> {
-    if !ctx.dry_run {
-        if has_cask(name) {
-            ui::skip(&format!("{name} (cask)"));
+    if has_cask(name) {
+        ui::skip(&format!("{name} (cask)"));
+        return Ok(());
+    }
+    if let Some(app) = cask_app_name(name) {
+        if Path::new("/Applications").join(&app).exists() {
+            ui::skip(&format!("{name} (/Applications/{app} already present)"));
             return Ok(());
-        }
-        if let Some(app) = cask_app_name(name) {
-            if Path::new("/Applications").join(&app).exists() {
-                ui::skip(&format!("{name} (/Applications/{app} already present)"));
-                return Ok(());
-            }
         }
     }
     if !brew_cmd()
@@ -213,8 +214,7 @@ pub fn install_cask(ctx: &Ctx, name: &str) -> Result<()> {
 }
 
 pub fn tap(ctx: &Ctx, name: &str) -> Result<()> {
-    if !ctx.dry_run {
-        let listed = brew_cmd().arg("tap").capture()?;
+    if let Ok(listed) = brew_cmd().arg("tap").capture() {
         if listed.stdout.lines().any(|l| l.trim() == name) {
             ui::skip(&format!("tap {name}"));
             return Ok(());
@@ -234,6 +234,12 @@ pub fn tap(ctx: &Ctx, name: &str) -> Result<()> {
 /// formula in the same file resolves.
 pub fn bundle(ctx: &Ctx, path: &Path) -> Result<()> {
     if !ctx.dry_run && !sys::allow_global_changes() {
+        return Ok(());
+    }
+    // A layer with a Brewfile can be selected without mac-base, which is
+    // what installs Homebrew (`--profile core --with mac-apps`).
+    if !ctx.dry_run && brew_bin().is_none() {
+        ui::warn("Homebrew is not installed; add the mac-base layer, which installs it");
         return Ok(());
     }
     let text =
@@ -279,6 +285,13 @@ mod tests {
         let (e, p) = parse("\n# just a comment\n\n   \nformula jq\n");
         assert_eq!(e, vec![Entry::Formula("jq".into())]);
         assert!(p.is_empty());
+    }
+
+    #[test]
+    fn extra_tokens_are_reported_not_dropped() {
+        let (e, p) = parse("formula git delta\n");
+        assert!(e.is_empty());
+        assert_eq!(p.len(), 1, "{p:?}");
     }
 
     #[test]

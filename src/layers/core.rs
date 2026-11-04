@@ -31,8 +31,13 @@ fn packages(ctx: &Ctx) -> Result<()> {
     if !sys::has("git") {
         missing.push("git");
     }
+    // ssh-keygen makes the key and the signing setup verifies it; minimal
+    // images ship git without it.
+    if !sys::has("ssh-keygen") {
+        missing.push(sys::ssh_client_package());
+    }
     if missing.is_empty() {
-        ui::skip("zsh and git already installed");
+        ui::skip("zsh, git and ssh already installed");
         return Ok(());
     }
     ui::step(&format!("installing: {}", missing.join(" ")));
@@ -93,13 +98,28 @@ fn ssh_config(ctx: &Ctx, layer_dir: &Path) -> Result<()> {
         }
     };
     match existing {
+        // A dangling symlink reads as NotFound. Writing would follow it and
+        // create the file wherever it points, so replace the link instead.
+        None if cfg.is_symlink() => {
+            ui::warn(&format!(
+                "{} is a broken symlink; replacing it",
+                ctx.pretty(&cfg)
+            ));
+            if !ctx.dry_run {
+                std::fs::remove_file(&cfg)?;
+            }
+            link::write_file(ctx, &cfg, &format!("{INCLUDE}\n"))?;
+            if !ctx.dry_run {
+                link::chmod(&cfg, 0o600)?;
+            }
+        }
         None => {
             link::write_file(ctx, &cfg, &format!("{INCLUDE}\n"))?;
             if !ctx.dry_run {
                 link::chmod(&cfg, 0o600)?;
             }
         }
-        Some(text) if text.contains("config.d/") => {
+        Some(text) if includes_config_d(&text) => {
             ui::skip("~/.ssh/config already includes config.d/");
         }
         Some(text) => {
@@ -236,7 +256,10 @@ fn login_shell(ctx: &Ctx) -> Result<()> {
     // re-prompt on every run -- and macOS chsh asks for a password.
     let current =
         sys::login_shell_of_record().unwrap_or_else(|| std::env::var("SHELL").unwrap_or_default());
-    if current == zsh.to_string_lossy() {
+    // Compare resolved paths: on a usrmerged system `which` finds
+    // /usr/bin/zsh while the account records /bin/zsh, the same binary.
+    let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    if canon(std::path::Path::new(&current)) == canon(&zsh) {
         ui::skip("login shell is already zsh");
         return Ok(());
     }
@@ -267,4 +290,15 @@ fn login_shell(ctx: &Ctx) -> Result<()> {
         ui::warn("chsh failed; run it yourself");
     }
     Ok(())
+}
+
+/// An `Include` line for config.d, not just any mention of it (a comment, say).
+pub fn includes_config_d(text: &str) -> bool {
+    text.lines().any(|l| {
+        let mut words = l.split_whitespace();
+        words
+            .next()
+            .is_some_and(|w| w.eq_ignore_ascii_case("include"))
+            && words.any(|w| w.contains("config.d/"))
+    })
 }

@@ -40,6 +40,16 @@ fn fragments(layer_dir: &Path, sub: &str, ext: &str) -> Vec<String> {
     names
 }
 
+/// Escape for the inside of a double-quoted shell string.
+fn dq_escape(s: &str) -> String {
+    s.chars()
+        .flat_map(|c| match c {
+            '\\' | '"' | '$' | '`' => vec!['\\', c],
+            _ => vec![c],
+        })
+        .collect()
+}
+
 pub fn render(ctx: &Ctx, profile: &str, layers: &[Layer]) -> String {
     let mut out = String::new();
     let names: Vec<&str> = layers.iter().map(|l| l.name).collect();
@@ -57,7 +67,7 @@ pub fn render(ctx: &Ctx, profile: &str, layers: &[Layer]) -> String {
         sh_quote(&ctx.root.to_string_lossy())
     );
     let _ = writeln!(out, "export DOTFILES_LAYERS=\"{}\"", names.join(" "));
-    let _ = writeln!(out, "export DOTFILES_PROFILE=\"{profile}\"");
+    let _ = writeln!(out, "export DOTFILES_PROFILE=\"{}\"", dq_escape(profile));
 
     for layer in layers {
         let dir = layer.path(ctx);
@@ -68,12 +78,14 @@ pub fn render(ctx: &Ctx, profile: &str, layers: &[Layer]) -> String {
         }
         let _ = writeln!(out, "\n# --- {} ---", layer.name);
         for f in sh {
-            let _ = writeln!(out, ". \"$DOTFILES_ROOT/layers/{}/shell/{f}\"", layer.name);
+            let rel = format!("layers/{}/shell/{f}", layer.name);
+            let _ = writeln!(out, ". \"$DOTFILES_ROOT\"/{}", sh_quote(&rel));
         }
         if !zsh.is_empty() {
             let _ = writeln!(out, "if [ -n \"${{ZSH_VERSION:-}}\" ]; then");
             for f in zsh {
-                let _ = writeln!(out, "  . \"$DOTFILES_ROOT/layers/{}/zsh/{f}\"", layer.name);
+                let rel = format!("layers/{}/zsh/{f}", layer.name);
+                let _ = writeln!(out, "  . \"$DOTFILES_ROOT\"/{}", sh_quote(&rel));
             }
             let _ = writeln!(out, "fi");
         }
@@ -127,8 +139,8 @@ mod tests {
         let core = layer::find("core").unwrap();
         let out = render(&ctx, "core", &[core]);
 
-        let sh_line = ". \"$DOTFILES_ROOT/layers/core/shell/10-a.sh\"";
-        let zsh_line = "  . \"$DOTFILES_ROOT/layers/core/zsh/00-b.zsh\"";
+        let sh_line = ". \"$DOTFILES_ROOT\"/'layers/core/shell/10-a.sh'";
+        let zsh_line = "  . \"$DOTFILES_ROOT\"/'layers/core/zsh/00-b.zsh'";
         assert!(out.contains(sh_line), "{out}");
         assert!(out.contains(zsh_line), "{out}");
 
@@ -137,6 +149,22 @@ mod tests {
         assert!(out.find(sh_line).unwrap() < guard);
         assert!(out.find(zsh_line).unwrap() > guard);
 
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// A fragment named `10-$HOME.sh` must be sourced by that literal name.
+    #[test]
+    fn fragment_names_are_quoted_literally() {
+        let tmp = std::env::temp_dir().join(format!("dfinit3{}", std::process::id()));
+        std::fs::create_dir_all(tmp.join("layers/core/shell")).unwrap();
+        std::fs::write(tmp.join("layers/core/shell/10-$HOME.sh"), "").unwrap();
+        let ctx = test_ctx(&tmp);
+        let out = render(&ctx, "co$re", &[layer::find("core").unwrap()]);
+        assert!(
+            out.contains(". \"$DOTFILES_ROOT\"/'layers/core/shell/10-$HOME.sh'"),
+            "{out}"
+        );
+        assert!(out.contains("DOTFILES_PROFILE=\"co\\$re\""), "{out}");
         std::fs::remove_dir_all(&tmp).ok();
     }
 
