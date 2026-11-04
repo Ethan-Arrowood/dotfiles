@@ -20,7 +20,7 @@ use std::path::Path;
 /// Single-quote a value for shell. A repo path containing `"`, `$` or a
 /// backtick would otherwise break or inject into the generated init.sh -- and
 /// .zshrc sources that unconditionally, so every new shell would error.
-fn sh_quote(s: &str) -> String {
+pub(crate) fn sh_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }
 

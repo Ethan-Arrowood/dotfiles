@@ -159,16 +159,25 @@ A `Dockfile` lists Dock items, one path per line, optionally followed by `dockut
 
 ## Claude Code config
 
-Global instructions are **rule files**, not a `CLAUDE.md`. Everything in `~/.claude/rules/*.md` loads every session, so a repo can own whole topic files while `~/.claude/CLAUDE.md` stays untracked and machine-specific:
+Skills, rules and hooks live in [`Ethan-Arrowood/agentic`](https://github.com/Ethan-Arrowood/agentic), not here. Its README explains each one. The [core Skillfile](layers/core/Skillfile) wires them up:
 
-```
-~/.claude/rules/general.md   -> symlink into Ethan-Arrowood/skills  (tracked, shared)
-~/.claude/CLAUDE.md          -> machine-local, untracked
-```
+| Skillfile line | Result |
+| --- | --- |
+| `repo  Ethan-Arrowood/agentic` | Every skill linked into `~/.claude/skills/` |
+| `rules Ethan-Arrowood/agentic` | `rules/*.md` and `rules/lang/` linked into `~/.claude/rules/`. Each `rules/orgs/<org>.md` gets an import line in `~/dev/<org>/CLAUDE.md` |
+| `hook  Ethan-Arrowood/agentic#hooks/sync.sh SessionStart 15` | The sync hook registered in `~/.claude/settings.json` |
 
-They live in the [skills repo](https://github.com/Ethan-Arrowood/skills/tree/main/rules), beside the skills, and a `rules <owner>/<repo>` line in a [Skillfile](layers/core/Skillfile) links that repo's `rules/*.md` into `~/.claude/rules/`. It is a separate line from `repo` so an org skills repo that grows a `rules/` directory cannot start loading into every session unasked. Nothing merges markdown sections, so a hand edit to `CLAUDE.md` is never clobbered by a reinstall.
+Global instructions are **rule files**, not a `CLAUDE.md`. Everything in `~/.claude/rules/` loads every session (or, with `paths:` frontmatter, once a matching file is touched). A repo can own whole topic files while `~/.claude/CLAUDE.md` stays untracked and machine-specific. Nothing merges markdown sections, so a reinstall never clobbers a hand edit to `CLAUDE.md`.
 
-New or changed rule files load at the **start of the next session** — a rules directory that did not exist when a session started is not watched.
+`rules` is a separate line from `repo`, so an org skills repo that grows a `rules/` directory can't start loading into every session unasked.
+
+Org rules can't use `paths:`, because user-level patterns match against the session's working directory, not the GitHub org. Claude Code does load every `CLAUDE.md` above the session, and repos live at `~/dev/<org>/<repo>`. So `~/dev/nodejs/CLAUDE.md` holds one line, `@~/dev/ethan-arrowood/agentic/rules/orgs/nodejs.md`. An existing org `CLAUDE.md` without that line is left alone, and the tool prints the line to add.
+
+A `CLAUDE.md` above a repo stops Claude Code reading that repo's own `AGENTS.md`. So when org imports are installed, the tool also sets `pluginConfigs."cc-plugin-agents-md@builtin".options.instructionFiles` to `claude-md-and-agents-md`. A value you set yourself is never overridden.
+
+`~/.claude/settings.json` is merged, never linked or replaced. Claude Code and you both edit it. The tool adds only what is missing, keeps everything else in its original order, backs up the original once per run, and leaves a file it can't parse untouched.
+
+New or changed rule files load at the **start of the next session**. A rules directory that didn't exist when a session started isn't watched.
 
 Note: Claude Code skips a symlinked user-scope rule file in Cowork sessions on the desktop. Everywhere else it follows the link normally.
 
@@ -179,26 +188,28 @@ Skills are not vendored here. Their source lives in its own repository, which ge
 A layer declares what it wants in a `Skillfile`, same format as a `Brewfile`:
 
 ```
-repo  <owner>/<repo>            every skill in the repo
-skill <owner>/<repo>#<skill>    just that one
-rules <owner>/<repo>            its rules/*.md -> ~/.claude/rules/
+repo  <owner>/<repo>                         every skill in the repo
+skill <owner>/<repo>#<skill>                 just that one
+rules <owner>/<repo>                         its rules/ -> ~/.claude/rules/
+hook  <owner>/<repo>#<path> <Event> [secs]   a hook in ~/.claude/settings.json
 ```
 
 ```
 # layers/core/Skillfile
-repo Ethan-Arrowood/skills
-rules Ethan-Arrowood/skills
+repo  Ethan-Arrowood/agentic
+rules Ethan-Arrowood/agentic
+hook  Ethan-Arrowood/agentic#hooks/sync.sh SessionStart 15
 
 # layers/work-harper/Skillfile
 repo harperfast/skills
 repo harperfast/skills-internal
 ```
 
-Repos clone to `$DOTFILES_SRC_DIR/<owner>/<repo>`, default `~/dev`, with the owner lowercased so `Ethan-Arrowood/skills` lands beside `~/dev/ethan-arrowood/`. `gh repo clone` is used when available so private and internal repos work; otherwise plain `git clone` over ssh.
+Repos clone to `$DOTFILES_SRC_DIR/<owner>/<repo>`, default `~/dev`, with the owner lowercased so `Ethan-Arrowood/agentic` lands beside `~/dev/ethan-arrowood/`. Several lines naming one repo clone it once. `gh repo clone` is used when available so private and internal repos work; otherwise plain `git clone` over ssh.
 
 An existing checkout is **never pulled or modified** — these are working trees you edit, so updating them is your call, not the installer's.
 
-Skills are found by locating `SKILL.md` rather than by assuming a path, because layouts differ: `Ethan-Arrowood/skills` and `harperfast/skills` put skills at the top level, while `harperfast/skills-internal` nests them under `skills/`. The search is bounded to two levels and stops descending once a directory is identified as a skill, so an example `SKILL.md` inside a skill does not become a phantom entry.
+Skills are found by locating `SKILL.md` rather than by assuming a path, because layouts differ: `Ethan-Arrowood/agentic` and `harperfast/skills` put skills at the top level, while `harperfast/skills-internal` nests them under `skills/`. The search is bounded to two levels and stops descending once a directory is identified as a skill, so an example `SKILL.md` inside a skill does not become a phantom entry.
 
 A local-only skill that is a real directory in `~/.claude/skills/` coexists fine — nothing touches a name no `Skillfile` declares.
 

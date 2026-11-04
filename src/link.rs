@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 /// `~/.claude/skills/general` all landed on top of each other -- and
 /// `fs::rename` silently replaces an existing file, so the earlier backup was
 /// destroyed without a word.
-fn backup_path(ctx: &Ctx, dst: &Path) -> PathBuf {
+pub(crate) fn backup_path(ctx: &Ctx, dst: &Path) -> PathBuf {
     match dst.strip_prefix(&ctx.home) {
         Ok(rel) => ctx.backup_dir.join(rel),
         Err(_) => ctx.backup_dir.join(dst.strip_prefix("/").unwrap_or(dst)),

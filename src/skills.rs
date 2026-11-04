@@ -11,8 +11,11 @@
 //!
 //!   repo  <owner>/<name>              clone it, link every skill it contains
 //!   skill <owner>/<name>#<skill>      clone it, link just that one skill
-//!   rules <owner>/<name>              clone it, link its rules/*.md into
+//!   rules <owner>/<name>              clone it, link its rules/ into
 //!                                     ~/.claude/rules/
+//!   hook  <owner>/<name>#<path> <Event> [timeout]
+//!                                     clone it, register <path> as a hook
+//!                                     in ~/.claude/settings.json
 //!
 //! Repos are cloned to `$DOTFILES_SRC_DIR/<owner>/<name>`, default `~/dev`,
 //! matching the existing `~/dev/<owner>/<repo>` layout.
@@ -38,21 +41,31 @@ pub enum Entry {
     /// that grows a `rules/` directory cannot start loading into every
     /// session unasked.
     Rules { owner: String, name: String },
+    /// A script in the repo, registered as a Claude Code hook.
+    Hook {
+        owner: String,
+        name: String,
+        path: String,
+        event: String,
+        timeout: Option<u32>,
+    },
 }
 
 impl Entry {
     pub fn owner(&self) -> &str {
         match self {
-            Entry::Repo { owner, .. } | Entry::Skill { owner, .. } | Entry::Rules { owner, .. } => {
-                owner
-            }
+            Entry::Repo { owner, .. }
+            | Entry::Skill { owner, .. }
+            | Entry::Rules { owner, .. }
+            | Entry::Hook { owner, .. } => owner,
         }
     }
     pub fn name(&self) -> &str {
         match self {
-            Entry::Repo { name, .. } | Entry::Skill { name, .. } | Entry::Rules { name, .. } => {
-                name
-            }
+            Entry::Repo { name, .. }
+            | Entry::Skill { name, .. }
+            | Entry::Rules { name, .. }
+            | Entry::Hook { name, .. } => name,
         }
     }
     pub fn slug(&self) -> String {
@@ -127,6 +140,32 @@ pub fn parse(text: &str) -> (Vec<Entry>, Vec<String>) {
             ("rules", Some(_)) => problems.push(format!(
                 "line {n}: `rules` takes no #suffix — use `rules {slug}`"
             )),
+            ("hook", Some(path)) if !path.is_empty() => {
+                let rest: Vec<&str> = parts.by_ref().collect();
+                let timeout = match rest.get(1).map(|t| t.parse::<u32>()) {
+                    None => None,
+                    Some(Ok(t)) => Some(t),
+                    Some(Err(_)) => {
+                        problems.push(format!("line {n}: timeout `{}` is not a number", rest[1]));
+                        continue;
+                    }
+                };
+                match rest.first() {
+                    Some(event) if rest.len() <= 2 => entries.push(Entry::Hook {
+                        owner: owner.to_string(),
+                        name: name.to_string(),
+                        path: path.to_string(),
+                        event: event.to_string(),
+                        timeout,
+                    }),
+                    _ => problems.push(format!(
+                        "line {n}: expected `hook {target} <Event> [timeout]`"
+                    )),
+                }
+            }
+            ("hook", _) => problems.push(format!(
+                "line {n}: `hook` needs a #path suffix — use `hook {slug}#<path> <Event>`"
+            )),
             ("skill", _) => problems.push(format!(
                 "line {n}: `skill` needs a #skill suffix — use `skill {slug}#<skill-name>`"
             )),
@@ -144,7 +183,7 @@ fn src_root(ctx: &Ctx) -> PathBuf {
 }
 
 /// Checkout path for a repo. The owner segment is lowercased so
-/// `Ethan-Arrowood/skills` lands beside the existing `~/dev/ethan-arrowood/`.
+/// `Ethan-Arrowood/agentic` lands beside the existing `~/dev/ethan-arrowood/`.
 fn checkout_path(ctx: &Ctx, owner: &str, name: &str) -> PathBuf {
     src_root(ctx).join(owner.to_lowercase()).join(name)
 }
@@ -265,12 +304,39 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
     // churning the loser into the backup directory on every run.
     let mut claimed: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
+    // Several entries usually name the same repo; clone (or report) it once.
+    let mut checkouts: std::collections::HashMap<String, Option<PathBuf>> =
+        std::collections::HashMap::new();
+
     for entry in &entries {
-        let Some(checkout) = ensure_clone(ctx, entry.owner(), entry.name())? else {
+        let checkout = match checkouts.get(&entry.slug()) {
+            Some(c) => c.clone(),
+            None => {
+                let c = ensure_clone(ctx, entry.owner(), entry.name())?;
+                checkouts.insert(entry.slug(), c.clone());
+                c
+            }
+        };
+        let Some(checkout) = checkout else {
             continue;
         };
         match entry {
-            Entry::Rules { .. } => claude::link_rules(ctx, &checkout.join("rules"))?,
+            Entry::Rules { .. } => {
+                claude::link_rules(ctx, &checkout.join("rules"), &src_root(ctx))?
+            }
+            Entry::Hook {
+                path,
+                event,
+                timeout,
+                ..
+            } => {
+                let script = checkout.join(path);
+                if script.is_file() {
+                    claude::register_hook(ctx, &script, event, *timeout)?;
+                } else {
+                    ui::warn(&format!("hook script {} not found", ctx.pretty(&script)));
+                }
+            }
             Entry::Repo { .. } => {
                 let found = discover(&checkout, MAX_DEPTH);
                 if found.is_empty() {
@@ -325,13 +391,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parses_hook_entries() {
+        let (e, p) = parse(
+            "hook o/r#hooks/sync.sh SessionStart 15   # note\n\
+             hook o/r#a.sh PreToolUse\n\
+             hook o/r#a.sh\n\
+             hook o/r SessionStart\n\
+             hook o/r#a.sh SessionStart soon\n",
+        );
+        assert_eq!(
+            e,
+            vec![
+                Entry::Hook {
+                    owner: "o".into(),
+                    name: "r".into(),
+                    path: "hooks/sync.sh".into(),
+                    event: "SessionStart".into(),
+                    timeout: Some(15),
+                },
+                Entry::Hook {
+                    owner: "o".into(),
+                    name: "r".into(),
+                    path: "a.sh".into(),
+                    event: "PreToolUse".into(),
+                    timeout: None,
+                },
+            ]
+        );
+        assert_eq!(p.len(), 3, "{p:?}");
+    }
+
+    #[test]
     fn parses_rules_entries() {
-        let (e, p) = parse("rules Ethan-Arrowood/skills\nrules a/b#c\n");
+        let (e, p) = parse("rules Ethan-Arrowood/agentic\nrules a/b#c\n");
         assert_eq!(
             e,
             vec![Entry::Rules {
                 owner: "Ethan-Arrowood".into(),
-                name: "skills".into()
+                name: "agentic".into()
             }]
         );
         assert_eq!(p.len(), 1, "{p:?}");
@@ -340,7 +437,7 @@ mod tests {
     #[test]
     fn parses_repo_and_skill_entries() {
         let (e, p) = parse(
-            "repo Ethan-Arrowood/skills      # everything in it\n\
+            "repo Ethan-Arrowood/agentic      # everything in it\n\
              skill harperfast/skills#harper-best-practices\n",
         );
         assert!(p.is_empty(), "{p:?}");
@@ -349,7 +446,7 @@ mod tests {
             vec![
                 Entry::Repo {
                     owner: "Ethan-Arrowood".into(),
-                    name: "skills".into()
+                    name: "agentic".into()
                 },
                 Entry::Skill {
                     owner: "harperfast".into(),
@@ -411,8 +508,8 @@ mod tests {
     #[test]
     fn owner_directory_is_lowercased_to_match_existing_layout() {
         let ctx = Ctx::new(std::env::temp_dir()).unwrap();
-        let p = checkout_path(&ctx, "Ethan-Arrowood", "skills");
-        assert!(p.ends_with("ethan-arrowood/skills"), "{}", p.display());
+        let p = checkout_path(&ctx, "Ethan-Arrowood", "agentic");
+        assert!(p.ends_with("ethan-arrowood/agentic"), "{}", p.display());
     }
 
     /// The three repos in use have three different layouts, so discovery must
@@ -422,7 +519,7 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("dfskills{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
 
-        // depth 1, like Ethan-Arrowood/skills and harperfast/skills
+        // depth 1, like Ethan-Arrowood/agentic and harperfast/skills
         std::fs::create_dir_all(tmp.join("top-level-skill")).unwrap();
         std::fs::write(tmp.join("top-level-skill/SKILL.md"), "").unwrap();
         // depth 2, like harperfast/skills-internal

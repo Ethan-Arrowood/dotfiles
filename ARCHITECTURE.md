@@ -14,7 +14,7 @@ A layer is a name plus a directory of files. [`layer.rs`](src/layer.rs) holds th
 for l in &selected {
     (l.install)(ctx, l)?;                   // layer-specific: brew, toolchains…
     link::link_home_dir(ctx, &l.path(ctx))?; // home/*       → $HOME
-    skills::install(ctx, l)?;                // Skillfile    → clone + symlink skills, rules
+    skills::install(ctx, l)?;                // Skillfile    → skills, rules, hooks
 }
 dock::apply(ctx, &selected)?;                // every Dockfile → the Dock
 shellinit::write(ctx, &profile, &selected)?; // → ~/.config/dotfiles/init.sh
@@ -28,16 +28,21 @@ Finding the repo ([`find_root`](src/ctx.rs)) looks for a directory containing `l
 
 ## Everything that touches $HOME
 
-Only four places. Every one goes through [`link::link_file`](src/link.rs) except where noted.
+Four places link into `$HOME`, all through [`link::link_file`](src/link.rs). The files written instead of linked are listed after the table.
 
 | What | Where | Code |
 | --- | --- | --- |
 | `home/*` → `$HOME/*` | `.zshrc`, `.gitconfig`, … | [`link.rs`](src/link.rs) |
 | `ssh/*.conf` → `~/.ssh/config.d/` | plus one `Include` line prepended to `~/.ssh/config` | [`core.rs`](src/layers/core.rs) |
-| `rules/*.md` → `~/.claude/rules/` | from a Skillfile `rules` repo | [`claude.rs`](src/claude.rs) |
+| `rules/*.md`, `rules/lang/` → `~/.claude/rules/` | from a Skillfile `rules` repo | [`claude.rs`](src/claude.rs) |
 | Skill dirs → `~/.claude/skills/` | symlinks into the cloned repo | [`skills.rs`](src/skills.rs) |
 
 Plus two **generated** files (written, not linked): `~/.config/dotfiles/init.sh` ([`shellinit.rs`](src/shellinit.rs)) and `~/.config/dotfiles/gitconfig.signing` ([`signing.rs`](src/signing.rs)).
+
+And two files written outside `link_file`, both in [`claude.rs`](src/claude.rs):
+
+- `~/dev/<org>/CLAUDE.md`: created with one import line when absent. An existing file is never changed.
+- `~/.claude/settings.json`: merged, not replaced. `edit_settings` parses it, adds only what is missing, backs up the original once per run, and leaves a file it can't parse untouched.
 
 ### link_file is the one to read closely
 
@@ -99,7 +104,8 @@ No private key material is handled anywhere in this codebase.
 | [`sys.rs`](src/sys.rs) | home resolves, trailing-slash `$HOME` is not a sandbox, unknown is treated as sandboxed |
 | [`shellinit.rs`](src/shellinit.rs) | zsh fragments are guarded, no runtime globbing, shell metacharacters quoted |
 | [`brew.rs`](src/brew.rs) | trailing comments aren't package names, `PATH` is imported from `brew shellenv` |
-| [`skills.rs`](src/skills.rs) | `#` parses as a separator not a comment, discovery finds both repo layouts |
+| [`skills.rs`](src/skills.rs) | `#` parses as a separator not a comment, discovery finds both repo layouts, `hook` and `rules` entries parse |
+| [`claude.rs`](src/claude.rs) | adding a hook keeps existing hooks and key order and is idempotent, a plugin option you set is never overridden |
 | [`layer.rs`](src/layer.rs) | unique names, every layer has its directory, `core` can't be dropped, the README example matches the struct |
 | [`mac_base.rs`](src/layers/mac_base.rs) | the newest CLT label is picked by version, not listing order; the shipped `Defaultsfile` parses cleanly |
 | [`dock.rs`](src/dock.rs) | paths with spaces, flags after the path, paths read back out of the Dock's plist |
