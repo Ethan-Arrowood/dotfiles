@@ -28,20 +28,21 @@ Finding the repo ([`find_root`](src/ctx.rs)) looks for a directory containing `l
 
 ## Everything that touches $HOME
 
-Four places link into `$HOME`, all through [`link::link_file`](src/link.rs). The files written instead of linked are listed after the table.
+Five places link into `$HOME`, all through [`link::link_file`](src/link.rs). The files written instead of linked are listed after the table.
 
 | What | Where | Code |
 | --- | --- | --- |
 | `home/*` → `$HOME/*` | `.zshrc`, `.gitconfig`, … | [`link.rs`](src/link.rs) |
 | `ssh/*.conf` → `~/.ssh/config.d/` | plus one `Include` line prepended to `~/.ssh/config` | [`core.rs`](src/layers/core.rs) |
 | `rules/*.md`, `rules/lang/` → `~/.claude/rules/` | from a Skillfile `rules` repo | [`claude.rs`](src/claude.rs) |
+| `rules/orgs/<org>.md` → `~/dev/<org>/AGENTS.md` | only where `~/dev/<org>/` exists | [`claude.rs`](src/claude.rs) |
 | Skill dirs → `~/.claude/skills/` | symlinks into the cloned repo | [`skills.rs`](src/skills.rs) |
 
 Plus two **generated** files (written, not linked): `~/.config/dotfiles/init.sh` ([`shellinit.rs`](src/shellinit.rs)) and `~/.config/dotfiles/gitconfig.signing` ([`signing.rs`](src/signing.rs)).
 
-And three files written outside `link_file`:
+And files changed outside `link_file`:
 
-- `~/dev/<org>/CLAUDE.md` ([`claude.rs`](src/claude.rs)): created with one import line when absent. An existing file is never changed.
+- `~/dev/<org>/CLAUDE.md` ([`claude.rs`](src/claude.rs)): moved to the backup directory only when it is exactly the one-line org import older versions wrote.
 - `~/.claude/settings.json` and `~/.codex/hooks.json` ([`hooks.rs`](src/hooks.rs)): merged, not replaced. `edit_json` parses the file, adds only what is missing, backs up the original once per run, and leaves a file it can't parse untouched.
 
 A SessionStart `hook` entry also runs its script once ([`hooks.rs`](src/hooks.rs)), with the agent's config directory set to the one under `$HOME`. agentic's scripts write only under `$HOME` and `~/dev`.
@@ -108,7 +109,7 @@ No private key material is handled anywhere in this codebase.
 | [`brew.rs`](src/brew.rs) | trailing comments aren't package names, `PATH` is imported from `brew shellenv` |
 | [`skills.rs`](src/skills.rs) | `#` parses as a separator not a comment, discovery finds both repo layouts, `hook` entries name a known agent, `rules` entries parse |
 | [`hooks.rs`](src/hooks.rs) | adding a hook keeps existing hooks and key order and is idempotent, Codex's SessionStart hook gets the `startup` matcher |
-| [`claude.rs`](src/claude.rs) | a plugin option you set is never overridden |
+| [`claude.rs`](src/claude.rs) | org rules link as `AGENTS.md` only where the org directory exists, old one-line imports are moved out, other files stay, a plugin option you set is never overridden |
 | [`layer.rs`](src/layer.rs) | unique names, every layer has its directory, `core` can't be dropped, the README example matches the struct |
 | [`mac_base.rs`](src/layers/mac_base.rs) | the newest CLT label is picked by version, not listing order; the shipped `Defaultsfile` parses cleanly |
 | [`dock.rs`](src/dock.rs) | paths with spaces, flags after the path, paths read back out of the Dock's plist |

@@ -164,7 +164,7 @@ Skills, rules and hooks for Claude Code and Codex live in [`Ethan-Arrowood/agent
 | Skillfile line | Result |
 | --- | --- |
 | `repo  Ethan-Arrowood/agentic` | Every skill linked into `~/.claude/skills/` |
-| `rules Ethan-Arrowood/agentic` | `rules/*.md` and `rules/lang/` linked into `~/.claude/rules/`. Each `rules/orgs/<org>.md` gets an import line in `~/dev/<org>/CLAUDE.md` |
+| `rules Ethan-Arrowood/agentic` | `rules/*.md` and `rules/lang/` linked into `~/.claude/rules/`. Each `rules/orgs/<org>.md` linked as `~/dev/<org>/AGENTS.md` |
 | `hook  claude Ethan-Arrowood/agentic#agents/claude/sync.sh SessionStart 15` | The Claude sync hook registered in `~/.claude/settings.json`, and run once |
 | `hook codex Ethan-Arrowood/agentic#agents/codex/sync.sh SessionStart` (work-harper) | The Codex sync hook registered in `~/.codex/hooks.json` for `startup`, and run once. It generates `~/.codex/AGENTS.md` and links skills into `~/.agents/skills/` |
 
@@ -174,9 +174,9 @@ Global instructions are **rule files**, not a `CLAUDE.md`. Everything in `~/.cla
 
 `rules` is a separate line from `repo`, so an org skills repo that grows a `rules/` directory can't start loading into every session unasked.
 
-Org rules can't use `paths:`, because user-level patterns match against the session's working directory, not the GitHub org. Claude Code does load every `CLAUDE.md` above the session, and repos live at `~/dev/<org>/<repo>`. So `~/dev/nodejs/CLAUDE.md` holds one line, `@~/dev/ethan-arrowood/agentic/rules/orgs/nodejs.md`. An existing org `CLAUDE.md` without that line is left alone, and the tool prints the line to add.
+Org rules can't use `paths:`, because user-level patterns match against the session's working directory, not the GitHub org. Claude Code does load every `AGENTS.md` above the session, and repos live at `~/dev/<org>/<repo>`. So `~/dev/nodejs/AGENTS.md` links to `rules/orgs/nodejs.md`. The link is made only where the org directory exists, and an existing `AGENTS.md` that isn't the link is left alone. An org `CLAUDE.md` that is exactly the one-line import older versions wrote moves to the backup directory, so the rules don't load twice.
 
-A `CLAUDE.md` above a repo stops Claude Code reading that repo's own `AGENTS.md`. So when org imports are installed, the tool also sets `pluginConfigs."cc-plugin-agents-md@builtin".options.instructionFiles` to `claude-md-and-agents-md`. A value you set yourself is never overridden.
+By default, any `CLAUDE.md` in or above a repo makes Claude Code skip every `AGENTS.md`, the org rules included. So when org rules are linked, the tool also sets `pluginConfigs."cc-plugin-agents-md@builtin".options.instructionFiles` to `claude-md-and-agents-md`. A value you set yourself is never overridden.
 
 `~/.claude/settings.json` and `~/.codex/hooks.json` are merged, never linked or replaced. The agent and you both edit them. The tool adds only what is missing, keeps everything else in its original order, backs up the original once per run, and leaves a file it can't parse untouched.
 

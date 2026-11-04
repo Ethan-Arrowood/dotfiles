@@ -55,45 +55,83 @@ pub fn link_rules(ctx: &Ctx, src_dir: &Path, src_root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// `rules/orgs/<org>.md` -> an import line in `<src_root>/<org>/CLAUDE.md`.
+/// `rules/orgs/<org>.md` -> a symlink at `<src_root>/<org>/AGENTS.md`.
 ///
 /// `paths:` frontmatter cannot match by GitHub org, because user-level
 /// patterns are relative to the session's working directory. Claude Code
-/// does load every CLAUDE.md above the session, and repos live at
-/// `~/dev/<org>/<repo>`, so a CLAUDE.md in the org directory covers them all.
+/// does load every AGENTS.md above the session, and repos live at
+/// `~/dev/<org>/<repo>`, so an AGENTS.md in the org directory covers them all.
 ///
-/// An existing CLAUDE.md without the import is left alone: it may hold the
-/// user's own lines, and is not ours to rewrite.
+/// Only where the org directory exists, as agentic's own sync hook does. An
+/// existing AGENTS.md that is not ours is left alone.
 fn link_org_rules(ctx: &Ctx, orgs_dir: &Path, src_root: &Path) -> Result<()> {
     let rules: Vec<PathBuf> = entries(orgs_dir).into_iter().filter(|p| is_md(p)).collect();
     if rules.is_empty() {
         return Ok(());
     }
     for rule in rules {
-        let org = rule.file_stem().unwrap();
-        let dst = src_root.join(org).join("CLAUDE.md");
-        let line = format!("@{}", ctx.pretty(&rule));
-        // agentic's own sync hook writes the absolute form.
-        let absolute = format!("@{}", rule.display());
-        match std::fs::read_to_string(&dst) {
-            Ok(text)
-                if text
-                    .lines()
-                    .any(|l| l.trim() == line || l.trim() == absolute) =>
-            {
-                ui::skip(&format!("{} (already imports {})", ctx.pretty(&dst), line));
-            }
-            Ok(_) => {
-                ui::warn(&format!(
-                    "{} exists without the org rules; add this line to it:",
-                    ctx.pretty(&dst)
-                ));
-                ui::detail(&line);
-            }
-            Err(_) => link::write_file(ctx, &dst, &format!("{line}\n"))?,
+        let dir = src_root.join(rule.file_stem().unwrap());
+        if !dir.is_dir() {
+            continue;
+        }
+        remove_old_import(ctx, &rule, &dir.join("CLAUDE.md"))?;
+        let dst = dir.join("AGENTS.md");
+        let ours = std::fs::read_link(&dst).is_ok_and(|t| t == rule);
+        let dangling = dst.is_symlink() && !dst.exists();
+        if ours || dangling || !dst.exists() {
+            link::link_file(ctx, &rule, &dst)?;
+        } else {
+            ui::warn(&format!(
+                "{} exists and is not a link to {}; leaving it",
+                ctx.pretty(&dst),
+                ctx.pretty(&rule)
+            ));
         }
     }
     load_agents_md_beside_claude_md(ctx)
+}
+
+/// Older versions of this tool and of agentic's hook imported org rules from
+/// `<org>/CLAUDE.md`. Next to the AGENTS.md link that file would load the
+/// rules twice, so a CLAUDE.md that is exactly that one import line moves to
+/// the backup directory. Any other CLAUDE.md is the user's and stays.
+fn remove_old_import(ctx: &Ctx, rule: &Path, claude_md: &Path) -> Result<()> {
+    if claude_md.is_symlink() {
+        return Ok(());
+    }
+    let Ok(text) = std::fs::read_to_string(claude_md) else {
+        return Ok(());
+    };
+    let text = text.trim();
+    if text != format!("@{}", ctx.pretty(rule)) && text != format!("@{}", rule.display()) {
+        return Ok(());
+    }
+    if ctx.dry_run {
+        ui::dry(&format!(
+            "remove {} (replaced by AGENTS.md)",
+            ctx.pretty(claude_md)
+        ));
+        return Ok(());
+    }
+    let backup = link::backup_path(ctx, claude_md);
+    if backup.exists() {
+        ui::warn(&format!(
+            "backup {} exists; leaving {}",
+            backup.display(),
+            ctx.pretty(claude_md)
+        ));
+        return Ok(());
+    }
+    if let Some(parent) = backup.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::rename(claude_md, &backup)
+        .with_context(|| format!("moving {} to the backup", claude_md.display()))?;
+    ui::ok(&format!(
+        "removed {} (replaced by AGENTS.md)",
+        ctx.pretty(claude_md)
+    ));
+    Ok(())
 }
 
 /// The built-in plugin that loads AGENTS.md, and the option that decides
@@ -137,8 +175,9 @@ fn set_plugin_option(
     }
 }
 
-/// A CLAUDE.md above a repo stops Claude Code reading that repo's own
-/// AGENTS.md (nodejs/node has one), so once org imports exist, load both.
+/// By default any CLAUDE.md in or above a repo makes Claude Code skip every
+/// AGENTS.md, the org rules included. Several repos have their own CLAUDE.md,
+/// so once org rules are linked, load both.
 fn load_agents_md_beside_claude_md(ctx: &Ctx) -> Result<()> {
     let what = format!("set {INSTRUCTION_FILES} to {BOTH}");
     hooks::edit_json(
@@ -153,7 +192,7 @@ fn load_agents_md_beside_claude_md(ctx: &Ctx) -> Result<()> {
             }
             Err(other) => {
                 ui::warn(&format!(
-                    "{INSTRUCTION_FILES} is set to {other}; leaving it. Org CLAUDE.md files will hide repos' AGENTS.md unless it is {BOTH}"
+                    "{INSTRUCTION_FILES} is set to {other}; leaving it. Repos with a CLAUDE.md will skip the org AGENTS.md unless it is {BOTH}"
                 ));
                 Ok(false)
             }
@@ -164,6 +203,70 @@ fn load_agents_md_beside_claude_md(ctx: &Ctx) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tmpdir::PrivateTempDir;
+    use std::fs;
+
+    /// Org rules link as `<org>/AGENTS.md` only where the org directory
+    /// exists, an old one-line CLAUDE.md import in either form is moved out,
+    /// and files that are not ours stay.
+    #[test]
+    fn org_rules_link_as_agents_md_and_replace_old_imports() {
+        let dir = PrivateTempDir::new("orgtest").unwrap();
+        let home = dir.join("home");
+        let mut ctx = Ctx::new(dir.join("repo")).unwrap();
+        ctx.home = home.clone();
+        ctx.backup_dir = home.join(".dotfiles-backup/test");
+        let dev = home.join("dev");
+        let orgs = dev.join("me/agentic/rules/orgs");
+        fs::create_dir_all(&orgs).unwrap();
+        for org in ["abs", "tilde", "mine", "theirs", "absent"] {
+            fs::write(orgs.join(format!("{org}.md")), "rule").unwrap();
+        }
+        for org in ["abs", "tilde", "mine", "theirs"] {
+            fs::create_dir_all(dev.join(org)).unwrap();
+        }
+        let rule = |org: &str| orgs.join(format!("{org}.md"));
+        fs::write(
+            dev.join("abs/CLAUDE.md"),
+            format!("@{}\n", rule("abs").display()),
+        )
+        .unwrap();
+        fs::write(
+            dev.join("tilde/CLAUDE.md"),
+            "@~/dev/me/agentic/rules/orgs/tilde.md\n",
+        )
+        .unwrap();
+        fs::write(dev.join("mine/CLAUDE.md"), "my own notes\n").unwrap();
+        fs::write(dev.join("theirs/AGENTS.md"), "hand-written").unwrap();
+
+        link_org_rules(&ctx, &orgs, &dev).unwrap();
+
+        for org in ["abs", "tilde", "mine"] {
+            assert_eq!(
+                fs::read_link(dev.join(org).join("AGENTS.md")).unwrap(),
+                rule(org)
+            );
+        }
+        assert!(!dev.join("abs/CLAUDE.md").exists());
+        assert!(!dev.join("tilde/CLAUDE.md").exists());
+        assert!(ctx.backup_dir.join("dev/abs/CLAUDE.md").is_file());
+        assert_eq!(
+            fs::read_to_string(dev.join("mine/CLAUDE.md")).unwrap(),
+            "my own notes\n"
+        );
+        assert_eq!(
+            fs::read_to_string(dev.join("theirs/AGENTS.md")).unwrap(),
+            "hand-written"
+        );
+        assert!(!dev.join("absent").exists());
+
+        // A second run changes nothing.
+        link_org_rules(&ctx, &orgs, &dev).unwrap();
+        assert_eq!(
+            fs::read_link(dev.join("abs/AGENTS.md")).unwrap(),
+            rule("abs")
+        );
+    }
 
     #[test]
     fn plugin_option_is_set_once_and_never_overridden() {
