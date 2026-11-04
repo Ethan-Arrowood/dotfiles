@@ -72,14 +72,16 @@ impl Agent {
     }
 }
 
-/// Add `command` under `hooks.<event>` unless a hook already runs it.
-/// Returns whether anything changed. Everything else in the file is kept as
+/// Add `command` under `hooks.<event>` unless a hook already runs it or one
+/// of `aliases`, other spellings of the same command. Returns whether
+/// anything changed. Everything else in the file is kept as
 /// is, in its original key order.
 fn add_hook(
     settings: &mut Value,
     event: &str,
     matcher: Option<&str>,
     command: &str,
+    aliases: &[&str],
     timeout: Option<u32>,
 ) -> Result<bool> {
     let root = settings
@@ -97,9 +99,10 @@ fn add_hook(
         .with_context(|| format!("`hooks.{event}` is not an array"))?;
 
     let present = groups.iter().any(|g| {
-        g["hooks"]
-            .as_array()
-            .is_some_and(|hs| hs.iter().any(|h| h["command"] == command))
+        g["hooks"].as_array().is_some_and(|hs| {
+            hs.iter()
+                .any(|h| h["command"] == command || aliases.iter().any(|a| h["command"] == *a))
+        })
     });
     if present {
         return Ok(false);
@@ -188,10 +191,19 @@ pub fn register(
     } else {
         shellinit::sh_quote(&script_str)
     };
-    let what = format!("register {event} hook {}", ctx.pretty(script));
+    // A hook registered by hand, as agentic's READMEs show, uses `~/`.
+    let tilde = ctx.pretty(script);
+    let what = format!("register {event} hook {tilde}");
     let mut added = false;
     edit_json(ctx, &agent.hooks_file(ctx), &what, |s| {
-        added = add_hook(s, event, agent.matcher(event), &command, timeout)?;
+        added = add_hook(
+            s,
+            event,
+            agent.matcher(event),
+            &command,
+            &[tilde.as_str()],
+            timeout,
+        )?;
         if !added {
             ui::skip(&format!(
                 "{event} hook {} (already registered)",
@@ -240,7 +252,7 @@ mod tests {
             r#"{"model":"x","hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"other"}]}]},"permissions":{}}"#,
         )
         .unwrap();
-        assert!(add_hook(&mut s, "SessionStart", None, "/a/sync.sh", Some(15)).unwrap());
+        assert!(add_hook(&mut s, "SessionStart", None, "/a/sync.sh", &[], Some(15)).unwrap());
         let groups = s["hooks"]["SessionStart"].as_array().unwrap();
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0]["hooks"][0]["command"], "other");
@@ -254,19 +266,35 @@ mod tests {
     #[test]
     fn add_hook_is_idempotent_and_creates_missing_sections() {
         let mut s = json!({});
-        assert!(add_hook(&mut s, "SessionStart", None, "/a/sync.sh", None).unwrap());
-        assert!(!add_hook(&mut s, "SessionStart", None, "/a/sync.sh", None).unwrap());
+        assert!(add_hook(&mut s, "SessionStart", None, "/a/sync.sh", &[], None).unwrap());
+        assert!(!add_hook(&mut s, "SessionStart", None, "/a/sync.sh", &[], None).unwrap());
         assert_eq!(s["hooks"]["SessionStart"].as_array().unwrap().len(), 1);
         assert!(s["hooks"]["SessionStart"][0]["hooks"][0]
             .get("timeout")
             .is_none());
     }
 
+    /// A hook added by hand as `~/...` is the same hook as `/Users/me/...`.
+    #[test]
+    fn add_hook_matches_an_alias() {
+        let mut s = json!({"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"~/a/sync.sh"}]}]}});
+        assert!(!add_hook(
+            &mut s,
+            "SessionStart",
+            None,
+            "/home/me/a/sync.sh",
+            &["~/a/sync.sh"],
+            None
+        )
+        .unwrap());
+        assert_eq!(s["hooks"]["SessionStart"].as_array().unwrap().len(), 1);
+    }
+
     #[test]
     fn codex_session_start_hooks_match_startup_only() {
         let mut s = json!({});
         let m = Agent::Codex.matcher("SessionStart");
-        assert!(add_hook(&mut s, "SessionStart", m, "/a/sync.sh", None).unwrap());
+        assert!(add_hook(&mut s, "SessionStart", m, "/a/sync.sh", &[], None).unwrap());
         let group = &s["hooks"]["SessionStart"][0];
         let keys: Vec<&String> = group.as_object().unwrap().keys().collect();
         assert_eq!(keys, ["matcher", "hooks"]);
@@ -277,6 +305,6 @@ mod tests {
     #[test]
     fn add_hook_refuses_a_malformed_shape() {
         let mut s = json!({ "hooks": [] });
-        assert!(add_hook(&mut s, "SessionStart", None, "/a", None).is_err());
+        assert!(add_hook(&mut s, "SessionStart", None, "/a", &[], None).is_err());
     }
 }
