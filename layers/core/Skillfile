@@ -5,8 +5,9 @@
 #   repo  <owner>/<repo>                         every skill in the repo
 #   skill <owner>/<repo>#<skill>                 just that one
 #   rules <owner>/<repo>                         its rules/ -> ~/.claude/rules/
-#   hook  <owner>/<repo>#<path> <Event> [secs]   a hook in ~/.claude/settings.json
+#   hook  <agent> <owner>/<repo>#<path> <Event> [secs]
+#                                                a hook for claude or codex
 
 repo  Ethan-Arrowood/agentic
 rules Ethan-Arrowood/agentic
-hook  Ethan-Arrowood/agentic#hooks/sync.sh SessionStart 15
+hook  claude Ethan-Arrowood/agentic#agents/claude/sync.sh SessionStart 15

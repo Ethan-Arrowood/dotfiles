@@ -157,15 +157,18 @@ macOS settings live in [`layers/mac-base/Defaultsfile`](layers/mac-base/Defaults
 
 A `Dockfile` lists Dock items, one path per line, optionally followed by `dockutil` flags. Every selected layer's `Dockfile` is combined in layer order and the Dock is set to exactly that, after all layers have installed, so Chrome (from [`mac-apps`](layers/mac-apps/Dockfile)) joins mac-base's [items](layers/mac-base/Dockfile) only on a machine that has it.
 
-## Claude Code config
+## Agent config
 
-Skills, rules and hooks live in [`Ethan-Arrowood/agentic`](https://github.com/Ethan-Arrowood/agentic), not here. Its README explains each one. The [core Skillfile](layers/core/Skillfile) wires them up:
+Skills, rules and hooks for Claude Code and Codex live in [`Ethan-Arrowood/agentic`](https://github.com/Ethan-Arrowood/agentic), not here. Its README explains each one. The [core](layers/core/Skillfile) and [work-harper](layers/work-harper/Skillfile) Skillfiles wire them up:
 
 | Skillfile line | Result |
 | --- | --- |
 | `repo  Ethan-Arrowood/agentic` | Every skill linked into `~/.claude/skills/` |
 | `rules Ethan-Arrowood/agentic` | `rules/*.md` and `rules/lang/` linked into `~/.claude/rules/`. Each `rules/orgs/<org>.md` gets an import line in `~/dev/<org>/CLAUDE.md` |
-| `hook  Ethan-Arrowood/agentic#hooks/sync.sh SessionStart 15` | The sync hook registered in `~/.claude/settings.json` |
+| `hook  claude Ethan-Arrowood/agentic#agents/claude/sync.sh SessionStart 15` | The Claude sync hook registered in `~/.claude/settings.json`, and run once |
+| `hook codex Ethan-Arrowood/agentic#agents/codex/sync.sh SessionStart` (work-harper) | The Codex sync hook registered in `~/.codex/hooks.json` for `startup`, and run once. It generates `~/.codex/AGENTS.md` and links skills into `~/.agents/skills/` |
+
+A SessionStart hook runs once at install, after creating the directories it installs into, so the first session starts synced. Codex runs a new hook only after you trust it with `/hooks`, so the tool prints that reminder.
 
 Global instructions are **rule files**, not a `CLAUDE.md`. Everything in `~/.claude/rules/` loads every session (or, with `paths:` frontmatter, once a matching file is touched). A repo can own whole topic files while `~/.claude/CLAUDE.md` stays untracked and machine-specific. Nothing merges markdown sections, so a reinstall never clobbers a hand edit to `CLAUDE.md`.
 
@@ -175,7 +178,7 @@ Org rules can't use `paths:`, because user-level patterns match against the sess
 
 A `CLAUDE.md` above a repo stops Claude Code reading that repo's own `AGENTS.md`. So when org imports are installed, the tool also sets `pluginConfigs."cc-plugin-agents-md@builtin".options.instructionFiles` to `claude-md-and-agents-md`. A value you set yourself is never overridden.
 
-`~/.claude/settings.json` is merged, never linked or replaced. Claude Code and you both edit it. The tool adds only what is missing, keeps everything else in its original order, backs up the original once per run, and leaves a file it can't parse untouched.
+`~/.claude/settings.json` and `~/.codex/hooks.json` are merged, never linked or replaced. The agent and you both edit them. The tool adds only what is missing, keeps everything else in its original order, backs up the original once per run, and leaves a file it can't parse untouched.
 
 New or changed rule files load at the **start of the next session**. A rules directory that didn't exist when a session started isn't watched.
 
@@ -191,25 +194,26 @@ A layer declares what it wants in a `Skillfile`, same format as a `Brewfile`:
 repo  <owner>/<repo>                         every skill in the repo
 skill <owner>/<repo>#<skill>                 just that one
 rules <owner>/<repo>                         its rules/ -> ~/.claude/rules/
-hook  <owner>/<repo>#<path> <Event> [secs]   a hook in ~/.claude/settings.json
+hook  <agent> <owner>/<repo>#<path> <Event> [secs]   a claude or codex hook
 ```
 
 ```
 # layers/core/Skillfile
 repo  Ethan-Arrowood/agentic
 rules Ethan-Arrowood/agentic
-hook  Ethan-Arrowood/agentic#hooks/sync.sh SessionStart 15
+hook  claude Ethan-Arrowood/agentic#agents/claude/sync.sh SessionStart 15
 
 # layers/work-harper/Skillfile
 repo harperfast/skills
 repo harperfast/skills-internal
+hook codex Ethan-Arrowood/agentic#agents/codex/sync.sh SessionStart
 ```
 
 Repos clone to `$DOTFILES_SRC_DIR/<owner>/<repo>`, default `~/dev`, with the owner lowercased so `Ethan-Arrowood/agentic` lands beside `~/dev/ethan-arrowood/`. Several lines naming one repo clone it once. `gh repo clone` is used when available so private and internal repos work; otherwise plain `git clone` over ssh.
 
-An existing checkout is **never pulled or modified** — these are working trees you edit, so updating them is your call, not the installer's.
+The installer **never pulls or modifies** an existing checkout. These are working trees you edit, so updating them is your call. A hook it runs may: agentic's sync hooks fast-forward their clone with `git pull --ff-only`, which never merges or discards local work.
 
-Skills are found by locating `SKILL.md` rather than by assuming a path, because layouts differ: `Ethan-Arrowood/agentic` and `harperfast/skills` put skills at the top level, while `harperfast/skills-internal` nests them under `skills/`. The search is bounded to two levels and stops descending once a directory is identified as a skill, so an example `SKILL.md` inside a skill does not become a phantom entry.
+Skills are found by locating `SKILL.md` rather than by assuming a path, because layouts differ: `harperfast/skills` puts skills at the top level, while `Ethan-Arrowood/agentic` and `harperfast/skills-internal` nest them under `skills/`. The search is bounded to two levels and stops descending once a directory is identified as a skill, so an example `SKILL.md` inside a skill does not become a phantom entry.
 
 A local-only skill that is a real directory in `~/.claude/skills/` coexists fine — nothing touches a name no `Skillfile` declares.
 

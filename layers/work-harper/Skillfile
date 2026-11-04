@@ -4,3 +4,6 @@
 
 repo harperfast/skills
 repo harperfast/skills-internal
+
+# Codex is installed by this layer's Brewfile, so its sync hook lives here.
+hook codex Ethan-Arrowood/agentic#agents/codex/sync.sh SessionStart

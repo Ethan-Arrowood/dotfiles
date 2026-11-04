@@ -6,6 +6,7 @@ mod ctx;
 mod dock;
 mod doctor;
 mod github;
+mod hooks;
 mod layer;
 mod layers;
 mod link;

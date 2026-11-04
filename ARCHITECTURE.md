@@ -39,10 +39,12 @@ Four places link into `$HOME`, all through [`link::link_file`](src/link.rs). The
 
 Plus two **generated** files (written, not linked): `~/.config/dotfiles/init.sh` ([`shellinit.rs`](src/shellinit.rs)) and `~/.config/dotfiles/gitconfig.signing` ([`signing.rs`](src/signing.rs)).
 
-And two files written outside `link_file`, both in [`claude.rs`](src/claude.rs):
+And three files written outside `link_file`:
 
-- `~/dev/<org>/CLAUDE.md`: created with one import line when absent. An existing file is never changed.
-- `~/.claude/settings.json`: merged, not replaced. `edit_settings` parses it, adds only what is missing, backs up the original once per run, and leaves a file it can't parse untouched.
+- `~/dev/<org>/CLAUDE.md` ([`claude.rs`](src/claude.rs)): created with one import line when absent. An existing file is never changed.
+- `~/.claude/settings.json` and `~/.codex/hooks.json` ([`hooks.rs`](src/hooks.rs)): merged, not replaced. `edit_json` parses the file, adds only what is missing, backs up the original once per run, and leaves a file it can't parse untouched.
+
+A SessionStart `hook` entry also runs its script once ([`hooks.rs`](src/hooks.rs)), with the agent's config directory set to the one under `$HOME`. agentic's scripts write only under `$HOME` and `~/dev`.
 
 ### link_file is the one to read closely
 
@@ -104,8 +106,9 @@ No private key material is handled anywhere in this codebase.
 | [`sys.rs`](src/sys.rs) | home resolves, trailing-slash `$HOME` is not a sandbox, unknown is treated as sandboxed |
 | [`shellinit.rs`](src/shellinit.rs) | zsh fragments are guarded, no runtime globbing, shell metacharacters quoted |
 | [`brew.rs`](src/brew.rs) | trailing comments aren't package names, `PATH` is imported from `brew shellenv` |
-| [`skills.rs`](src/skills.rs) | `#` parses as a separator not a comment, discovery finds both repo layouts, `hook` and `rules` entries parse |
-| [`claude.rs`](src/claude.rs) | adding a hook keeps existing hooks and key order and is idempotent, a plugin option you set is never overridden |
+| [`skills.rs`](src/skills.rs) | `#` parses as a separator not a comment, discovery finds both repo layouts, `hook` entries name a known agent, `rules` entries parse |
+| [`hooks.rs`](src/hooks.rs) | adding a hook keeps existing hooks and key order and is idempotent, Codex's SessionStart hook gets the `startup` matcher |
+| [`claude.rs`](src/claude.rs) | a plugin option you set is never overridden |
 | [`layer.rs`](src/layer.rs) | unique names, every layer has its directory, `core` can't be dropped, the README example matches the struct |
 | [`mac_base.rs`](src/layers/mac_base.rs) | the newest CLT label is picked by version, not listing order; the shipped `Defaultsfile` parses cleanly |
 | [`dock.rs`](src/dock.rs) | paths with spaces, flags after the path, paths read back out of the Dock's plist |

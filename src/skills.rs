@@ -13,14 +13,15 @@
 //!   skill <owner>/<name>#<skill>      clone it, link just that one skill
 //!   rules <owner>/<name>              clone it, link its rules/ into
 //!                                     ~/.claude/rules/
-//!   hook  <owner>/<name>#<path> <Event> [timeout]
+//!   hook  <agent> <owner>/<name>#<path> <Event> [timeout]
 //!                                     clone it, register <path> as a hook
-//!                                     in ~/.claude/settings.json
+//!                                     for `claude` or `codex`
 //!
 //! Repos are cloned to `$DOTFILES_SRC_DIR/<owner>/<name>`, default `~/dev`,
 //! matching the existing `~/dev/<owner>/<repo>` layout.
 
 use crate::ctx::Ctx;
+use crate::hooks::{self, Agent};
 use crate::layer::Layer;
 use crate::sys::{self, Cmd};
 use crate::{claude, link, ui};
@@ -41,8 +42,9 @@ pub enum Entry {
     /// that grows a `rules/` directory cannot start loading into every
     /// session unasked.
     Rules { owner: String, name: String },
-    /// A script in the repo, registered as a Claude Code hook.
+    /// A script in the repo, registered as an agent hook.
     Hook {
+        agent: Agent,
         owner: String,
         name: String,
         path: String,
@@ -99,7 +101,23 @@ pub fn parse(text: &str) -> (Vec<Entry>, Vec<String>) {
         }
         let n = i + 1;
         let mut parts = line.split_whitespace();
-        let (Some(kind), Some(target)) = (parts.next(), parts.next()) else {
+        let kind = parts.next();
+        // `hook` names the agent before the repo.
+        let agent = if kind == Some("hook") {
+            match parts.next().map(|a| (a, Agent::parse(a))) {
+                Some((_, Some(a))) => Some(a),
+                Some((a, None)) => {
+                    problems.push(format!(
+                        "line {n}: unknown agent `{a}`; expected `claude` or `codex`"
+                    ));
+                    continue;
+                }
+                None => None,
+            }
+        } else {
+            None
+        };
+        let (Some(kind), Some(target)) = (kind, parts.next()) else {
             problems.push(format!(
                 "line {n}: expected `<kind> <owner>/<repo>`, got `{line}`"
             ));
@@ -141,6 +159,7 @@ pub fn parse(text: &str) -> (Vec<Entry>, Vec<String>) {
                 "line {n}: `rules` takes no #suffix — use `rules {slug}`"
             )),
             ("hook", Some(path)) if !path.is_empty() => {
+                let agent = agent.expect("hook lines name an agent before the target");
                 let rest: Vec<&str> = parts.by_ref().collect();
                 let timeout = match rest.get(1).map(|t| t.parse::<u32>()) {
                     None => None,
@@ -152,6 +171,7 @@ pub fn parse(text: &str) -> (Vec<Entry>, Vec<String>) {
                 };
                 match rest.first() {
                     Some(event) if rest.len() <= 2 => entries.push(Entry::Hook {
+                        agent,
                         owner: owner.to_string(),
                         name: name.to_string(),
                         path: path.to_string(),
@@ -159,12 +179,12 @@ pub fn parse(text: &str) -> (Vec<Entry>, Vec<String>) {
                         timeout,
                     }),
                     _ => problems.push(format!(
-                        "line {n}: expected `hook {target} <Event> [timeout]`"
+                        "line {n}: expected `hook <agent> {target} <Event> [timeout]`"
                     )),
                 }
             }
             ("hook", _) => problems.push(format!(
-                "line {n}: `hook` needs a #path suffix — use `hook {slug}#<path> <Event>`"
+                "line {n}: `hook` needs a #path suffix — use `hook <agent> {slug}#<path> <Event>`"
             )),
             ("skill", _) => problems.push(format!(
                 "line {n}: `skill` needs a #skill suffix — use `skill {slug}#<skill-name>`"
@@ -325,6 +345,7 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
                 claude::link_rules(ctx, &checkout.join("rules"), &src_root(ctx))?
             }
             Entry::Hook {
+                agent,
                 path,
                 event,
                 timeout,
@@ -332,7 +353,7 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
             } => {
                 let script = checkout.join(path);
                 if script.is_file() {
-                    claude::register_hook(ctx, &script, event, *timeout)?;
+                    hooks::register(ctx, *agent, &script, event, *timeout)?;
                 } else {
                     ui::warn(&format!("hook script {} not found", ctx.pretty(&script)));
                 }
@@ -393,23 +414,27 @@ mod tests {
     #[test]
     fn parses_hook_entries() {
         let (e, p) = parse(
-            "hook o/r#hooks/sync.sh SessionStart 15   # note\n\
-             hook o/r#a.sh PreToolUse\n\
-             hook o/r#a.sh\n\
-             hook o/r SessionStart\n\
-             hook o/r#a.sh SessionStart soon\n",
+            "hook claude o/r#agents/claude/sync.sh SessionStart 15   # note\n\
+             hook codex o/r#a.sh PreToolUse\n\
+             hook claude o/r#a.sh\n\
+             hook claude o/r SessionStart\n\
+             hook claude o/r#a.sh SessionStart soon\n\
+             hook o/r#a.sh SessionStart\n\
+             hook\n",
         );
         assert_eq!(
             e,
             vec![
                 Entry::Hook {
+                    agent: Agent::Claude,
                     owner: "o".into(),
                     name: "r".into(),
-                    path: "hooks/sync.sh".into(),
+                    path: "agents/claude/sync.sh".into(),
                     event: "SessionStart".into(),
                     timeout: Some(15),
                 },
                 Entry::Hook {
+                    agent: Agent::Codex,
                     owner: "o".into(),
                     name: "r".into(),
                     path: "a.sh".into(),
@@ -418,7 +443,8 @@ mod tests {
                 },
             ]
         );
-        assert_eq!(p.len(), 3, "{p:?}");
+        assert_eq!(p.len(), 5, "{p:?}");
+        assert!(p[3].contains("unknown agent `o/r#a.sh`"), "{}", p[3]);
     }
 
     #[test]
@@ -519,10 +545,10 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("dfskills{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
 
-        // depth 1, like Ethan-Arrowood/agentic and harperfast/skills
+        // depth 1, like harperfast/skills
         std::fs::create_dir_all(tmp.join("top-level-skill")).unwrap();
         std::fs::write(tmp.join("top-level-skill/SKILL.md"), "").unwrap();
-        // depth 2, like harperfast/skills-internal
+        // depth 2, like Ethan-Arrowood/agentic and harperfast/skills-internal
         std::fs::create_dir_all(tmp.join("skills/nested-skill")).unwrap();
         std::fs::write(tmp.join("skills/nested-skill/SKILL.md"), "").unwrap();
         // must be ignored

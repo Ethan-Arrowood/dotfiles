@@ -1,4 +1,4 @@
-//! Claude Code rules and hooks, from `rules` and `hook` Skillfile entries.
+//! Claude Code rules, from `rules` Skillfile entries.
 //!
 //! Rule files, not CLAUDE.md. `~/.claude/rules/*.md` all load every session,
 //! so the repo can own whole topic files while `~/.claude/CLAUDE.md` stays
@@ -9,7 +9,8 @@
 //! on the desktop. Everywhere else it follows the link normally.
 
 use crate::ctx::Ctx;
-use crate::{link, shellinit, ui};
+use crate::hooks::{self, Agent};
+use crate::{link, ui};
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -72,8 +73,14 @@ fn link_org_rules(ctx: &Ctx, orgs_dir: &Path, src_root: &Path) -> Result<()> {
         let org = rule.file_stem().unwrap();
         let dst = src_root.join(org).join("CLAUDE.md");
         let line = format!("@{}", ctx.pretty(&rule));
+        // agentic's own sync hook writes the absolute form.
+        let absolute = format!("@{}", rule.display());
         match std::fs::read_to_string(&dst) {
-            Ok(text) if text.lines().any(|l| l.trim() == line) => {
+            Ok(text)
+                if text
+                    .lines()
+                    .any(|l| l.trim() == line || l.trim() == absolute) =>
+            {
                 ui::skip(&format!("{} (already imports {})", ctx.pretty(&dst), line));
             }
             Ok(_) => {
@@ -87,126 +94,6 @@ fn link_org_rules(ctx: &Ctx, orgs_dir: &Path, src_root: &Path) -> Result<()> {
         }
     }
     load_agents_md_beside_claude_md(ctx)
-}
-
-/// The settings file Claude Code reads for hooks.
-fn settings_path(ctx: &Ctx) -> PathBuf {
-    ctx.home.join(".claude/settings.json")
-}
-
-/// Add `command` under `hooks.<event>` unless a hook already runs it.
-/// Returns whether anything changed. Everything else in the file is kept as
-/// is, in its original key order.
-fn add_hook(
-    settings: &mut Value,
-    event: &str,
-    command: &str,
-    timeout: Option<u32>,
-) -> Result<bool> {
-    let root = settings
-        .as_object_mut()
-        .context("settings.json is not a JSON object")?;
-    let hooks = root
-        .entry("hooks")
-        .or_insert_with(|| json!({}))
-        .as_object_mut()
-        .context("`hooks` in settings.json is not an object")?;
-    let groups = hooks
-        .entry(event)
-        .or_insert_with(|| json!([]))
-        .as_array_mut()
-        .with_context(|| format!("`hooks.{event}` in settings.json is not an array"))?;
-
-    let present = groups.iter().any(|g| {
-        g["hooks"]
-            .as_array()
-            .is_some_and(|hs| hs.iter().any(|h| h["command"] == command))
-    });
-    if present {
-        return Ok(false);
-    }
-    let mut hook = json!({ "type": "command", "command": command });
-    if let Some(t) = timeout {
-        hook["timeout"] = json!(t);
-    }
-    groups.push(json!({ "hooks": [hook] }));
-    Ok(true)
-}
-
-/// Read `~/.claude/settings.json`, let `edit` change it, and write it back if
-/// it reports a change. Settings is one file that Claude Code and the user
-/// both edit, so it is merged, never linked or replaced, and backed up before
-/// it is rewritten. A file that does not parse is left untouched.
-fn edit_settings(
-    ctx: &Ctx,
-    what: &str,
-    edit: impl FnOnce(&mut Value) -> Result<bool>,
-) -> Result<()> {
-    let path = settings_path(ctx);
-    let mut settings: Value = match std::fs::read_to_string(&path) {
-        Ok(text) => match serde_json::from_str(&text) {
-            Ok(v) => v,
-            Err(e) => {
-                ui::warn(&format!(
-                    "could not parse {} ({e}); not changing it to {what}",
-                    ctx.pretty(&path)
-                ));
-                return Ok(());
-            }
-        },
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
-        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
-    };
-
-    if !edit(&mut settings)? {
-        return Ok(());
-    }
-    if ctx.dry_run {
-        ui::dry(&format!("{what} in {}", ctx.pretty(&path)));
-        return Ok(());
-    }
-    // Back up the original once per run. A run can edit settings more than
-    // once, and a second copy would replace the original with the half-edited
-    // file from the first edit.
-    let backup = link::backup_path(ctx, &path);
-    if path.exists() && !backup.exists() {
-        if let Some(parent) = backup.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::copy(&path, &backup).with_context(|| format!("backing up {}", path.display()))?;
-    }
-    let mut out = serde_json::to_string_pretty(&settings)?;
-    out.push('\n');
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&path, out).with_context(|| format!("writing {}", path.display()))?;
-    ui::ok(&format!("{what} in {}", ctx.pretty(&path)));
-    Ok(())
-}
-
-/// Register a hook script in `~/.claude/settings.json`.
-pub fn register_hook(ctx: &Ctx, script: &Path, event: &str, timeout: Option<u32>) -> Result<()> {
-    let script_str = script.to_string_lossy();
-    let command = if script_str
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || "/._-~".contains(c))
-    {
-        script_str.into_owned()
-    } else {
-        shellinit::sh_quote(&script_str)
-    };
-    let what = format!("register {event} hook {}", ctx.pretty(script));
-    edit_settings(ctx, &what, |s| {
-        let changed = add_hook(s, event, &command, timeout)?;
-        if !changed {
-            ui::skip(&format!(
-                "{event} hook {} (already registered)",
-                ctx.pretty(script)
-            ));
-        }
-        Ok(changed)
-    })
 }
 
 /// The built-in plugin that loads AGENTS.md, and the option that decides
@@ -254,8 +141,11 @@ fn set_plugin_option(
 /// AGENTS.md (nodejs/node has one), so once org imports exist, load both.
 fn load_agents_md_beside_claude_md(ctx: &Ctx) -> Result<()> {
     let what = format!("set {INSTRUCTION_FILES} to {BOTH}");
-    edit_settings(ctx, &what, |s| {
-        match set_plugin_option(s, AGENTS_MD_PLUGIN, INSTRUCTION_FILES, BOTH)? {
+    hooks::edit_json(
+        ctx,
+        &Agent::Claude.hooks_file(ctx),
+        &what,
+        |s| match set_plugin_option(s, AGENTS_MD_PLUGIN, INSTRUCTION_FILES, BOTH)? {
             Ok(true) => Ok(true),
             Ok(false) => {
                 ui::skip(&format!("{INSTRUCTION_FILES} is already {BOTH}"));
@@ -267,40 +157,13 @@ fn load_agents_md_beside_claude_md(ctx: &Ctx) -> Result<()> {
                 ));
                 Ok(false)
             }
-        }
-    })
+        },
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn add_hook_keeps_existing_hooks_and_key_order() {
-        let mut s: Value = serde_json::from_str(
-            r#"{"model":"x","hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"other"}]}]},"permissions":{}}"#,
-        )
-        .unwrap();
-        assert!(add_hook(&mut s, "SessionStart", "/a/sync.sh", Some(15)).unwrap());
-        let groups = s["hooks"]["SessionStart"].as_array().unwrap();
-        assert_eq!(groups.len(), 2);
-        assert_eq!(groups[0]["hooks"][0]["command"], "other");
-        assert_eq!(groups[1]["hooks"][0]["command"], "/a/sync.sh");
-        assert_eq!(groups[1]["hooks"][0]["timeout"], 15);
-        let keys: Vec<&String> = s.as_object().unwrap().keys().collect();
-        assert_eq!(keys, ["model", "hooks", "permissions"]);
-    }
-
-    #[test]
-    fn add_hook_is_idempotent_and_creates_missing_sections() {
-        let mut s = json!({});
-        assert!(add_hook(&mut s, "SessionStart", "/a/sync.sh", None).unwrap());
-        assert!(!add_hook(&mut s, "SessionStart", "/a/sync.sh", None).unwrap());
-        assert_eq!(s["hooks"]["SessionStart"].as_array().unwrap().len(), 1);
-        assert!(s["hooks"]["SessionStart"][0]["hooks"][0]
-            .get("timeout")
-            .is_none());
-    }
 
     #[test]
     fn plugin_option_is_set_once_and_never_overridden() {
@@ -312,11 +175,5 @@ mod tests {
         s["pluginConfigs"]["p@builtin"]["options"]["k"] = json!("mine");
         assert_eq!(set(&mut s), Err("\"mine\"".into()));
         assert_eq!(s["pluginConfigs"]["p@builtin"]["options"]["k"], "mine");
-    }
-
-    #[test]
-    fn add_hook_refuses_a_malformed_shape() {
-        let mut s = json!({ "hooks": [] });
-        assert!(add_hook(&mut s, "SessionStart", "/a", None).is_err());
     }
 }
