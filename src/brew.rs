@@ -164,16 +164,82 @@ fn has_cask(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// The .app a cask installs, so a hand- or MDM-installed copy is not clobbered.
-fn cask_app_name(name: &str) -> Option<String> {
-    let out = brew_cmd().args(["info", "--cask", name]).capture().ok()?;
+/// What a cask installs that may already be on the machine without brew:
+/// its `.app` names, the receipt ids of a `.pkg` cask (Tailscale ships one),
+/// and the commands a CLI cask links (`agy` has its own installer). A copy
+/// installed by hand or MDM is then not clobbered or doubled.
+#[derive(Debug, Default, PartialEq)]
+struct CaskFootprint {
+    apps: Vec<String>,
+    pkg_ids: Vec<String>,
+    commands: Vec<String>,
+}
+
+fn cask_footprint(name: &str) -> Option<CaskFootprint> {
+    let out = brew_cmd()
+        .args(["info", "--cask", "--json=v2", name])
+        .capture()
+        .ok()?;
     if !out.ok {
         return None;
     }
-    out.stdout.lines().find_map(|l| {
-        let l = l.trim();
-        l.strip_suffix(" (App)").map(|s| s.to_string())
-    })
+    let json: serde_json::Value = serde_json::from_str(&out.stdout).ok()?;
+    Some(footprint(json["casks"].get(0)?))
+}
+
+fn footprint(cask: &serde_json::Value) -> CaskFootprint {
+    // `app` and `pkgutil` are each either one string or a list of them.
+    fn strings(v: &serde_json::Value) -> Vec<String> {
+        match v {
+            serde_json::Value::String(s) => vec![s.clone()],
+            serde_json::Value::Array(a) => a.iter().flat_map(strings).collect(),
+            _ => vec![],
+        }
+    }
+    let mut f = CaskFootprint::default();
+    for artifact in cask["artifacts"].as_array().into_iter().flatten() {
+        f.apps.extend(strings(&artifact["app"]));
+        // `["src", {"target": "agy"}]`: the command is the target if given,
+        // else the source's file name.
+        if let Some(b) = artifact["binary"].as_array() {
+            let target = b.iter().find_map(|v| v["target"].as_str());
+            let source = b.first().and_then(|v| v.as_str());
+            if let Some(cmd) = target.or(source) {
+                f.commands
+                    .push(cmd.rsplit('/').next().unwrap_or(cmd).to_string());
+            }
+        }
+        for step in artifact["uninstall"].as_array().into_iter().flatten() {
+            f.pkg_ids.extend(strings(&step["pkgutil"]));
+        }
+    }
+    f
+}
+
+/// Why a cask counts as installed without brew, if it does.
+fn installed_outside_brew(name: &str) -> Option<String> {
+    let f = cask_footprint(name)?;
+    if let Some(app) = f
+        .apps
+        .iter()
+        .find(|a| Path::new("/Applications").join(a).exists())
+    {
+        return Some(format!("/Applications/{app} already present"));
+    }
+    f.pkg_ids
+        .iter()
+        .find(|id| {
+            Cmd::new("pkgutil")
+                .args(["--pkg-info", id.as_str()])
+                .capture()
+                .is_ok_and(|c| c.ok)
+        })
+        .map(|id| format!("package {id} already installed"))
+        .or_else(|| {
+            f.commands
+                .iter()
+                .find_map(|c| sys::which(c).map(|p| format!("`{c}` already at {}", p.display())))
+        })
 }
 
 // The installed checks below run in dry-run too: they only read, and without
@@ -198,11 +264,9 @@ pub fn install_cask(ctx: &Ctx, name: &str) -> Result<()> {
         ui::skip(&format!("{name} (cask)"));
         return Ok(());
     }
-    if let Some(app) = cask_app_name(name) {
-        if Path::new("/Applications").join(&app).exists() {
-            ui::skip(&format!("{name} (/Applications/{app} already present)"));
-            return Ok(());
-        }
+    if let Some(why) = installed_outside_brew(name) {
+        ui::skip(&format!("{name} ({why})"));
+        return Ok(());
     }
     if !brew_cmd()
         .args(["install", "--cask", name])
@@ -320,6 +384,29 @@ mod tests {
         assert!(
             after.split(':').any(|d| d == bin_dir),
             "{bin_dir} missing from PATH after load_shellenv: {after}"
+        );
+    }
+
+    #[test]
+    fn cask_footprint_reads_apps_and_pkg_receipts() {
+        let cask: serde_json::Value = serde_json::from_str(
+            r#"{"artifacts":[
+                {"uninstall":[{"quit":"x","pkgutil":"com.example.pkg"}]},
+                {"pkg":["Example.pkg"]},
+                {"app":["Example.app"]},
+                {"uninstall":[{"pkgutil":["a.one","a.two"]}]},
+                {"binary":["antigravity",{"target":"agy"}]},
+                {"binary":["bin/codex"]}
+            ]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            footprint(&cask),
+            CaskFootprint {
+                apps: vec!["Example.app".into()],
+                pkg_ids: vec!["com.example.pkg".into(), "a.one".into(), "a.two".into()],
+                commands: vec!["agy".into(), "codex".into()],
+            }
         );
     }
 

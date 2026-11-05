@@ -72,7 +72,7 @@ dotfiles install --profile core --with mac-apps                # build your own
 | `mac-langs` | macOS | Node (fnm), Rust (rustup), Python (uv), C/C++, Java |
 | `mac-apps` | macOS | Chrome, VS Code, Claude, Ghostty, Dashlane CLI |
 | `mac-apps-extra` | macOS | Slack, Zoom, Spotify, Discord, Podman, DaisyDisk |
-| `work-harper` | any | Codex, Antigravity (`agy`) and gcloud CLIs (macOS), the [dispatch](src/layers/work_harper.rs) client and Claude plugin, Harper dev-server aliases, LastPass (opt-in; no identity override) |
+| `work-harper` | any | Codex, Antigravity (`agy`) and gcloud CLIs, Tailscale (macOS), the [dispatch](src/layers/work_harper.rs) client and Claude plugin, Harper dev-server aliases, LastPass (opt-in; no identity override) |
 
 `core` is the only layer that has to work everywhere, so it assumes nothing: no Homebrew, no Node, no GUI. Every optional integration in it (starship, fzf, the zsh plugins, git-delta) is guarded by a `command -v` check and degrades to a sane built-in.
 

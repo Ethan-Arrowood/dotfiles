@@ -7,3 +7,7 @@ cask lastpass
 cask codex
 cask antigravity-cli            # installs as `agy`
 cask gcloud-cli
+
+# The standalone app (not the App Store build). Signing in to the work
+# tailnet, and allowing its VPN configuration on first launch, stay manual.
+cask tailscale-app

@@ -1,5 +1,5 @@
-//! Work layer: Harper's agent CLIs, the dispatch client, dev-server aliases
-//! and the work password manager.
+//! Work layer: Harper's agent CLIs, Tailscale, the dispatch client,
+//! dev-server aliases and the work password manager.
 //!
 //! No git identity override on purpose: ethan@arrowood.dev is the identity
 //! everywhere, including work repos. A domain you own outlives every employer,
@@ -16,14 +16,43 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
     let brewfile = layer.path(ctx).join("Brewfile");
     if sys::is_macos() {
         brew::bundle(ctx, &brewfile)?;
+        tailscale(ctx);
     } else {
-        ui::skip("not macOS: skipping codex, agy, gcloud and LastPass");
+        ui::skip("not macOS: skipping codex, agy, gcloud, Tailscale and LastPass");
     }
     dispatch(ctx)?;
     if !ctx.home.join("dev/harperfast").is_dir() {
         ui::warn("~/dev/harperfast does not exist yet; the harper aliases assume that layout");
     }
     Ok(())
+}
+
+/// Tailscale installs from the Brewfile, but joining the tailnet needs a
+/// browser sign-in (an auth key would be a secret), so only report it.
+fn tailscale(ctx: &Ctx) {
+    let app = std::path::Path::new("/Applications/Tailscale.app");
+    let cli = sys::which("tailscale").or_else(|| {
+        let p = app.join("Contents/MacOS/Tailscale");
+        p.is_file().then_some(p)
+    });
+    let Some(cli) = cli else {
+        if !ctx.dry_run {
+            ui::detail("Tailscale is not installed; it comes from this layer's Brewfile");
+        }
+        return;
+    };
+    let state = Cmd::new(cli.to_string_lossy())
+        .args(["status", "--json"])
+        .capture()
+        .ok()
+        .and_then(|c| serde_json::from_str::<serde_json::Value>(&c.stdout).ok())
+        .and_then(|v| v["BackendState"].as_str().map(String::from));
+    match state.as_deref() {
+        Some("Running") => ui::skip("tailscale connected"),
+        _ => ui::detail(
+            "Tailscale is not connected: open Tailscale, allow its VPN configuration if asked, and sign in with your work account",
+        ),
+    }
 }
 
 /// The dispatch client runs straight out of its repo: clone it, put

@@ -111,7 +111,7 @@ No private key material is handled anywhere in this codebase.
 | [`link.rs`](src/link.rs) | backup content, path collisions, real directories untouched, dangling symlinks, refusing to overwrite a backup |
 | [`sys.rs`](src/sys.rs) | home resolves, trailing-slash `$HOME` is not a sandbox, only a confirmed real home allows global changes, only the override value `1` counts |
 | [`shellinit.rs`](src/shellinit.rs) | zsh fragments are guarded, no runtime globbing, repo paths, fragment names and the profile quoted |
-| [`brew.rs`](src/brew.rs) | trailing comments aren't package names, extra words are reported, `PATH` is imported from `brew shellenv` |
+| [`brew.rs`](src/brew.rs) | trailing comments aren't package names, extra words are reported, a cask's apps, `.pkg` receipts and commands are read so a copy installed without brew is skipped, `PATH` is imported from `brew shellenv` |
 | [`skills.rs`](src/skills.rs) | `#` parses as a separator not a comment, discovery finds both repo layouts, `hook` entries name a known agent, `rules` entries parse, extra words and nested repo paths are reported |
 | [`hooks.rs`](src/hooks.rs) | adding a hook keeps existing hooks and key order and is idempotent, a `~/` spelling of the same hook counts, Codex's SessionStart hook gets the `startup` matcher |
 | [`claude.rs`](src/claude.rs) | org rules link as `AGENTS.md` only where the org directory exists, old one-line imports are moved out, other files stay, a plugin option you set is never overridden |
