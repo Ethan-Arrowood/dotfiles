@@ -1,0 +1,293 @@
+//! Set up zsh, git and SSH. Defer GitHub registration to `dotfiles github`: gh
+//! may not be installed yet.
+
+use crate::ctx::Ctx;
+use crate::layer::Layer;
+use crate::signing::{self, EMAIL};
+use crate::sys::{self, Cmd};
+use crate::{link, ui};
+use anyhow::Result;
+use std::path::Path;
+
+pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
+    let dir = layer.path(ctx);
+    packages(ctx)?;
+    ssh_config(ctx, &dir)?;
+    ssh_key(ctx)?;
+    ssh_agent(ctx)?;
+    signing::configure(ctx)?;
+    login_shell(ctx)?;
+    Ok(())
+}
+
+fn packages(ctx: &Ctx) -> Result<()> {
+    let mut missing = Vec::new();
+    if !sys::has("zsh") {
+        missing.push("zsh");
+    }
+    if !sys::has("git") {
+        missing.push("git");
+    }
+    // ssh-keygen makes the key and the signing setup verifies it; minimal
+    // images ship git without it.
+    if !sys::has("ssh-keygen") {
+        missing.push(sys::ssh_client_package());
+    }
+    if missing.is_empty() {
+        ui::skip("zsh, git and ssh already installed");
+        return Ok(());
+    }
+    ui::step(&format!("installing: {}", missing.join(" ")));
+    if !sys::sys_install(ctx, &missing)? {
+        ui::warn(&format!(
+            "could not install {} automatically",
+            missing.join(" ")
+        ));
+    }
+    Ok(())
+}
+
+fn ssh_config(ctx: &Ctx, layer_dir: &Path) -> Result<()> {
+    let ssh_dir = ctx.home.join(".ssh");
+    let config_d = ssh_dir.join("config.d");
+    if !ctx.dry_run {
+        std::fs::create_dir_all(&config_d)?;
+        link::chmod(&ssh_dir, 0o700)?;
+        link::chmod(&config_d, 0o700)?;
+    }
+
+    let src_dir = layer_dir.join("ssh");
+    if src_dir.is_dir() {
+        let mut files: Vec<_> = std::fs::read_dir(&src_dir)?
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().map(|x| x == "conf").unwrap_or(false))
+            .collect();
+        files.sort();
+        for f in files {
+            let name = f.file_name().unwrap().to_owned();
+            link::link_file(ctx, &f, &config_d.join(name))?;
+        }
+    }
+
+    // SSH uses the first value, so managed settings must precede existing entries.
+    let cfg = ssh_dir.join("config");
+    const INCLUDE: &str = "Include ~/.ssh/config.d/*";
+
+    // Only NotFound means absent. Mapping other errors to None would overwrite
+    // unreadable config without a backup.
+    let existing = match std::fs::read_to_string(&cfg) {
+        Ok(text) => Some(text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => {
+            ui::error(&format!(
+                "cannot read {}: {e}. Leaving it unchanged.",
+                ctx.pretty(&cfg)
+            ));
+            ui::detail(&format!(
+                "fragments are in {}; add this line:\n  {INCLUDE}",
+                ctx.pretty(&config_d)
+            ));
+            return Ok(());
+        }
+    };
+    match existing {
+        // A dangling symlink reads as NotFound. Writing would follow it and
+        // create the file wherever it points, so replace the link instead.
+        None if cfg.is_symlink() => {
+            ui::warn(&format!(
+                "{} is a broken symlink; replacing it",
+                ctx.pretty(&cfg)
+            ));
+            if !ctx.dry_run {
+                std::fs::remove_file(&cfg)?;
+            }
+            link::write_file(ctx, &cfg, &format!("{INCLUDE}\n"))?;
+            if !ctx.dry_run {
+                link::chmod(&cfg, 0o600)?;
+            }
+        }
+        None => {
+            link::write_file(ctx, &cfg, &format!("{INCLUDE}\n"))?;
+            if !ctx.dry_run {
+                link::chmod(&cfg, 0o600)?;
+            }
+        }
+        Some(text) if includes_config_d(&text) => {
+            ui::skip("~/.ssh/config already includes config.d/");
+        }
+        Some(text) => {
+            if ctx.dry_run {
+                ui::dry(&format!("prepend `{INCLUDE}` to ~/.ssh/config"));
+                return Ok(());
+            }
+            std::fs::create_dir_all(&ctx.backup_dir)?;
+            std::fs::write(ctx.backup_dir.join("ssh_config"), &text)?;
+            // Replace symlinks so writing cannot modify a tracked config target.
+            if std::fs::symlink_metadata(&cfg)
+                .map(|m| m.file_type().is_symlink())
+                .unwrap_or(false)
+            {
+                std::fs::remove_file(&cfg)?;
+            }
+            std::fs::write(&cfg, format!("{INCLUDE}\n\n{text}"))?;
+            link::chmod(&cfg, 0o600)?;
+            ui::ok(&format!(
+                "prepended Include to ~/.ssh/config (backup in {})",
+                ctx.pretty(&ctx.backup_dir)
+            ));
+            if text.lines().any(|l| {
+                let l = l.trim();
+                l.starts_with("Host ") && l.contains("github.com")
+            }) {
+                ui::warn(
+                    "your existing ~/.ssh/config also has a 'Host github.com' block; \
+                     the managed one now wins and yours is dead config",
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn ssh_key(ctx: &Ctx) -> Result<()> {
+    let key = signing::ssh_key_path(ctx);
+    if key.exists() {
+        ui::skip(&format!("ssh key {}", ctx.pretty(&key)));
+        return Ok(());
+    }
+    if ctx.dry_run {
+        ui::dry(&format!("generate ssh key {}", ctx.pretty(&key)));
+        return Ok(());
+    }
+    // Containers borrow the host key over a forwarded agent, so they need none.
+    if sys::is_container() {
+        ui::skip("container: using the forwarded agent rather than a local key");
+        return Ok(());
+    }
+    // -y accepts yes/no prompts but still allows passphrase input.
+    // Key generation needs a terminal for that input.
+    if !Path::new("/dev/tty").exists() || std::fs::File::open("/dev/tty").is_err() {
+        ui::warn(&format!(
+            "no ssh key at {} and no terminal to set a passphrase on:",
+            ctx.pretty(&key)
+        ));
+        ui::detail(&format!(
+            "ssh-keygen -t ed25519 -C \"{EMAIL}\" -f {}",
+            ctx.pretty(&key)
+        ));
+        return Ok(());
+    }
+
+    std::fs::create_dir_all(ctx.home.join(".ssh"))?;
+    ui::step("generating an ed25519 ssh key (choose a passphrase when prompted)");
+    let ok = Cmd::new("ssh-keygen")
+        .args(["-t", "ed25519", "-C", EMAIL, "-f"])
+        .arg(key.to_string_lossy())
+        .run(ctx, "ssh-keygen")?;
+    if !ok {
+        ui::warn("ssh-keygen failed");
+    }
+    Ok(())
+}
+
+fn ssh_agent(ctx: &Ctx) -> Result<()> {
+    let key = signing::ssh_key_path(ctx);
+    if !key.exists() || ctx.dry_run {
+        return Ok(());
+    }
+    // Looks $HOME-scoped but is not: the agent is per-session and
+    // --apple-use-keychain writes the real login Keychain.
+    if !sys::allow_global_changes() {
+        return Ok(());
+    }
+    let fingerprint = Cmd::new("ssh-keygen")
+        .arg("-lf")
+        .arg(key.to_string_lossy())
+        .capture()
+        .ok()
+        .filter(|c| c.ok)
+        .and_then(|c| c.stdout.split_whitespace().nth(1).map(String::from));
+
+    if let Some(fp) = &fingerprint {
+        if let Ok(listed) = Cmd::new("ssh-add").arg("-l").capture() {
+            if listed.stdout.contains(fp.as_str()) {
+                ui::skip("ssh key already loaded in the agent");
+                return Ok(());
+            }
+        }
+    }
+
+    // --apple-use-keychain stores the passphrase so this survives reboots.
+    let cmd = if sys::is_macos() {
+        Cmd::new("ssh-add")
+            .arg("--apple-use-keychain")
+            .arg(key.to_string_lossy())
+    } else {
+        Cmd::new("ssh-add").arg(key.to_string_lossy())
+    };
+    if !cmd.run(ctx, "adding key to ssh-agent")? {
+        ui::warn("ssh-add failed (is the agent running?)");
+    }
+    Ok(())
+}
+
+fn login_shell(ctx: &Ctx) -> Result<()> {
+    let Some(zsh) = sys::which("zsh") else {
+        return Ok(());
+    };
+    // chsh changes the real account, outside $HOME. With -y, a test could do this
+    // without prompting unless guarded.
+    if !ctx.dry_run && !sys::allow_global_changes() {
+        return Ok(());
+    }
+    // $SHELL stays stale after chsh. Read the account database to avoid repeated
+    // prompts, which ask for a password on macOS.
+    let current =
+        sys::login_shell_of_record().unwrap_or_else(|| std::env::var("SHELL").unwrap_or_default());
+    // Compare resolved paths: on a usrmerged system `which` finds
+    // /usr/bin/zsh while the account records /bin/zsh, the same binary.
+    let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    if canon(std::path::Path::new(&current)) == canon(&zsh) {
+        ui::skip("login shell is already zsh");
+        return Ok(());
+    }
+    if sys::is_container() {
+        ui::skip("container: leaving login shell alone");
+        return Ok(());
+    }
+    let shells = std::fs::read_to_string("/etc/shells").unwrap_or_default();
+    if !shells.lines().any(|l| l.trim() == zsh.to_string_lossy()) {
+        ui::warn(&format!(
+            "{} is not in /etc/shells; add it before chsh",
+            zsh.display()
+        ));
+        return Ok(());
+    }
+    if !ui::confirm(
+        &format!("Change login shell to {}?", zsh.display()),
+        ctx.assume_yes,
+    ) {
+        ui::skip("login shell unchanged");
+        return Ok(());
+    }
+    if !Cmd::new("chsh")
+        .arg("-s")
+        .arg(zsh.to_string_lossy())
+        .run(ctx, "chsh")?
+    {
+        ui::warn("chsh failed; run it yourself");
+    }
+    Ok(())
+}
+
+/// An `Include` line for config.d, not just any mention of it (a comment, say).
+pub fn includes_config_d(text: &str) -> bool {
+    text.lines().any(|l| {
+        let mut words = l.split_whitespace();
+        words
+            .next()
+            .is_some_and(|w| w.eq_ignore_ascii_case("include"))
+            && words.any(|w| w.contains("config.d/"))
+    })
+}

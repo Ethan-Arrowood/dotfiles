@@ -1,0 +1,4 @@
+# Portable base: zsh + git only.
+# Linux devcontainers, CI images, remote boxes, anywhere language runtimes are
+# already provided by the image.
+core

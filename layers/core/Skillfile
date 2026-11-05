@@ -1,0 +1,6 @@
+# Skills, rules and hooks link to editable checkouts under ~/dev/<owner>/<repo>.
+# Edits apply without syncing. See README.md for Skillfile syntax.
+
+repo  Ethan-Arrowood/agentic
+rules Ethan-Arrowood/agentic
+hook  claude Ethan-Arrowood/agentic#agents/claude/sync.sh SessionStart 15

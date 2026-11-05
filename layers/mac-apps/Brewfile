@@ -1,0 +1,11 @@
+# Essential apps, including for VMs. Optional apps belong in mac-apps-extra.
+
+cask google-chrome
+cask visual-studio-code
+cask claude                     # Claude desktop app
+cask ghostty                    # terminal; config lives in config/ghostty/
+
+# Use the Dashlane browser extension and CLI. The formula pulls Homebrew Node
+# through yarn for dcli; fnm takes precedence in interactive shells.
+tap dashlane/tap
+formula dashlane/tap/dashlane-cli

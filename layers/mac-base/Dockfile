@@ -1,0 +1,8 @@
+# One path per line, optionally followed by dockutil flags.
+# Combine selected Dockfiles in layer order, skipping absent paths.
+# macOS always keeps Trash.
+
+/System/Applications/System Settings.app
+/Applications/Safari.app
+~/Downloads   --display stack --view fan --sort dateadded
+/Applications --display stack --view auto --sort name
