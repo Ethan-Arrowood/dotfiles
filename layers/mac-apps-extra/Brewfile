@@ -1,7 +1,5 @@
-# Everything that makes a daily-driver machine pleasant but that a VM or a
-# short-lived box does not need. Drop this whole layer with:
+# Optional apps. Comment out individual lines or omit the layer:
 #   dotfiles install --profile mac-full --without mac-apps-extra
-# or comment out individual lines here.
 
 cask slack
 cask zoom

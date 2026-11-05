@@ -23,8 +23,7 @@ fn xcode_clt(ctx: &Ctx) -> Result<()> {
     if !ctx.dry_run && !sys::allow_global_changes() {
         return Ok(());
     }
-    // Present is the whole bar. CLT versions track the OS release and are
-    // Software Update's job, not this tool's.
+    // Software Update handles CLT versions once installed.
     if Cmd::new("xcode-select")
         .arg("-p")
         .capture()
@@ -34,8 +33,7 @@ fn xcode_clt(ctx: &Ctx) -> Result<()> {
         ui::skip("xcode command line tools");
         return Ok(());
     }
-    // Apple's own installer. A headless `softwareupdate` install is possible
-    // but depends on undocumented behaviour that can change with any release.
+    // Use Apple's installer. Headless softwareupdate installation is undocumented.
     if ctx.dry_run {
         ui::dry("open Apple's Command Line Tools installer");
         return Ok(());
@@ -103,11 +101,8 @@ fn parse_defaults(text: &str, home: &Path) -> (Vec<Setting>, Vec<String>) {
     (out, problems)
 }
 
-/// Apply `layers/mac-base/Defaultsfile`.
-///
-/// Reads each key before writing it: writing unconditionally meant every run
-/// ended in `killall Finder Dock SystemUIServer`, restarting the Dock and
-/// closing open Finder windows even when nothing had changed.
+/// Write changed defaults only. Unconditional writes restarted the Dock and
+/// closed Finder windows on every run.
 fn macos_defaults(ctx: &Ctx, layer: &Layer) -> Result<()> {
     if !ctx.dry_run && !sys::allow_global_changes() {
         return Ok(());
@@ -141,7 +136,6 @@ fn macos_defaults(ctx: &Ctx, layer: &Layer) -> Result<()> {
         return Ok(());
     }
     if !ctx.dry_run {
-        // Only restart the UI when something actually moved.
         for app in ["Finder", "Dock", "SystemUIServer"] {
             let _ = Cmd::new("killall").arg(app).capture();
         }
@@ -165,8 +159,7 @@ pub(crate) fn current_default(domain: &str, key: &str) -> Option<String> {
     Some(out.trimmed().to_string())
 }
 
-/// `defaults read` prints booleans as 0/1 and floats without a trailing
-/// fraction, so compare in that form rather than against the literal we pass.
+/// Normalize booleans to the 0/1 form printed by `defaults read`.
 pub(crate) fn normalized(kind: &str, value: &str) -> String {
     match kind {
         "-bool" => match value {

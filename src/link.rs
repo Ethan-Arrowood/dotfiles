@@ -1,5 +1,4 @@
-//! Symlinking with backups. Everything a layer places in $HOME goes through
-//! here so re-runs are idempotent and nothing is silently destroyed.
+//! Symlink files with backups and leave matching links untouched.
 
 use crate::ctx::Ctx;
 use crate::ui;
@@ -7,12 +6,8 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Where a displaced file goes, preserving its location under the backup root.
-///
-/// Keyed on the basename alone, `~/.zshrc`, `~/.claude/rules/general.md` and
-/// `~/.claude/skills/general` all landed on top of each other, and
-/// `fs::rename` silently replaces an existing file, so the earlier backup was
-/// destroyed without a word.
+/// Preserve paths under the backup root to avoid basename collisions.
+/// `fs::rename` would silently overwrite an earlier backup with the same name.
 pub(crate) fn backup_path(ctx: &Ctx, dst: &Path) -> PathBuf {
     match dst.strip_prefix(&ctx.home) {
         Ok(rel) => ctx.backup_dir.join(rel),
@@ -27,7 +22,6 @@ pub fn link_file(ctx: &Ctx, src: &Path, dst: &Path) -> Result<()> {
         return Ok(());
     }
 
-    // Already pointing where we want it.
     if let Ok(target) = fs::read_link(dst) {
         if target == src {
             ui::skip(&format!("{} (already linked)", ctx.pretty(dst)));
@@ -37,9 +31,7 @@ pub fn link_file(ctx: &Ctx, src: &Path, dst: &Path) -> Result<()> {
 
     // symlink_metadata so a broken symlink still counts as present.
     if let Ok(meta) = fs::symlink_metadata(dst) {
-        // A real directory is almost certainly the user's own content (a
-        // hand-written skill, a config tree), and moving it wholesale into a
-        // backup is too destructive to do silently.
+        // Real directories may hold user files, such as local skills. Leave them intact.
         if meta.is_dir() && !meta.file_type().is_symlink() {
             ui::warn(&format!(
                 "{} is a real directory, not a link; leaving it alone",
@@ -113,10 +105,8 @@ pub fn link_home_dir(ctx: &Ctx, layer_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Write a generated (non-symlinked) file.
-/// Write a file this tool generates. Unchanged content is left alone, so a
-/// second run writes nothing, and a symlink in the way is replaced rather
-/// than written through to whatever it points at.
+/// Write generated content only when changed. Replace symlinks rather than
+/// writing through them.
 pub fn write_file(ctx: &Ctx, dst: &Path, content: &str) -> Result<()> {
     let is_link = dst.is_symlink();
     if !is_link && fs::read_to_string(dst).is_ok_and(|t| t == content) {
@@ -144,8 +134,7 @@ pub fn write_file(ctx: &Ctx, dst: &Path, content: &str) -> Result<()> {
 
 /// Remove a generated file if present.
 pub fn remove_if_present(ctx: &Ctx, path: &Path) -> Result<()> {
-    // symlink_metadata, not exists(): exists() follows the link and is false
-    // for a dangling one, so a broken symlink was never cleaned up.
+    // exists() misses dangling links, which still need removal.
     if fs::symlink_metadata(path).is_err() {
         return Ok(());
     }

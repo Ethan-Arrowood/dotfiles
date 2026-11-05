@@ -26,9 +26,8 @@ alias gcpc='git cherry-pick --continue'
 alias gcps='git cherry-pick --skip'
 alias gcpa='git cherry-pick --abort'
 
-# Prefer modern tools when installed, without breaking muscle memory.
+# Use optional tools under familiar aliases.
 command -v bat  >/dev/null 2>&1 && alias cat='bat --paging=never --style=plain'
 command -v eza  >/dev/null 2>&1 && { alias ll='eza -l --git'; alias la='eza -la --git'; }
-# Deliberately NOT aliasing grep to rg: different regex dialect (rg -E is
-# --encoding, so `grep -E 'a|b'` breaks), different recursion default, and it
-# honors .gitignore. Use rg directly.
+# Do not alias grep to rg: -E means --encoding in rg, which also recurses
+# and honors .gitignore. Use rg directly.

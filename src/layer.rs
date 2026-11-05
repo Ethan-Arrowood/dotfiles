@@ -1,9 +1,5 @@
-//! Layers and profiles.
-//!
-//! A layer is a named unit of setup: some Rust that performs its steps, plus
-//! a directory of assets (`home/`, `shell/`, `zsh/`, `ssh/`, `Brewfile`, ...).
-//! The registry below is the single source of truth for which layers exist,
-//! so there is no metadata file to drift out of sync with the code.
+//! Layers combine install functions and asset directories.
+//! The registry defines available layers and their order.
 
 use crate::ctx::Ctx;
 use crate::sys;
@@ -14,8 +10,7 @@ use std::path::PathBuf;
 pub type InstallFn = fn(&Ctx, &Layer) -> Result<()>;
 
 pub struct Layer {
-    /// Stable name. Used on the command line, in profiles, and as the
-    /// directory name under `layers/`.
+    /// Name used in CLI arguments, profiles and `layers/` paths.
     pub name: &'static str,
     pub description: &'static str,
     /// macOS-only. Everything else runs anywhere, including containers.
@@ -39,9 +34,7 @@ impl Layer {
     }
 }
 
-/// Every layer. **Declaration order is install order**, and the order
-/// shell fragments are sourced in. There is no separate order field and no
-/// numeric prefix on the directories: one ordered list, one source of truth.
+/// Declaration order controls installation and shell fragment loading.
 pub fn registry() -> Vec<Layer> {
     use crate::layers;
     vec![

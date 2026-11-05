@@ -1,5 +1,4 @@
-# Login shells only. Homebrew's shellenv belongs here rather than in .zshrc so
-# it runs once per login instead of once per interactive shell.
+# Run Homebrew shellenv once per login, not every interactive shell.
 
 if [ -x /opt/homebrew/bin/brew ]; then
   eval "$(/opt/homebrew/bin/brew shellenv)"

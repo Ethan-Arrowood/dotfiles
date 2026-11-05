@@ -1,14 +1,6 @@
-//! A private temporary directory for secret material.
-//!
-//! Downloaded installers and scratch working directories must not sit at a
-//! path another user can predict or pre-create.
-//! `create_dir` fails if the path exists, which makes creation atomic against a
-//! pre-planted file or symlink, and 0700 means nothing inside can be reached,
-//! replaced, or symlink-swapped afterwards. Files created within therefore need
-//! no defence of their own, which matters for anything that creates its
-//! output at the caller's umask rather than explicitly.
-//!
-//! The directory removes itself on drop, including on error paths.
+//! Private temporary directories for installers and scratch repos.
+//! Exclusive create_dir rejects planted files and symlinks. Mode 0700 protects
+//! contents from other users, regardless of each file's umask. Drop cleans up.
 
 use anyhow::{bail, Context, Result};
 #[cfg(test)]
@@ -22,8 +14,7 @@ pub struct PrivateTempDir {
 impl PrivateTempDir {
     pub fn new(tag: &str) -> Result<Self> {
         let base = std::env::temp_dir();
-        // A few attempts in case of an unlucky collision; create_dir is the
-        // exclusivity check, so a loser simply retries.
+        // Retry collisions. create_dir guarantees exclusive creation.
         for attempt in 0..8u32 {
             let nonce = nonce(attempt);
             let path = base.join(format!("dotfiles-{tag}-{nonce}"));

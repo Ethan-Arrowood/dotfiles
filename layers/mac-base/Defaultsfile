@@ -1,5 +1,4 @@
-# macOS defaults: `domain key type value`, one per line. Each is read first
-# and only written when it differs, so re-runs change nothing.
+# Format: `domain key type value`. Write only changed values.
 # Trackpad, mouse, appearance and keyboard changes apply at next login.
 
 # Keyboard

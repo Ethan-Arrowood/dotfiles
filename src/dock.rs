@@ -1,8 +1,5 @@
-//! The Dock, set from every selected layer's `Dockfile`.
-//!
-//! Runs once after all layers, not inside one: mac-base runs before mac-apps
-//! installs Chrome, so applying it there would leave Chrome out until the
-//! next run.
+//! Apply all selected Dockfiles after layer installation.
+//! Applying in mac-base would omit apps installed by later layers.
 
 use crate::ctx::Ctx;
 use crate::layer::Layer;
@@ -73,8 +70,7 @@ fn paths_in(plist: &str) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Resolved, so the Dock storing `/Applications/Safari.app` (a symlink into
-/// the Safari cryptex) or its target cannot make every run rewrite the Dock.
+/// Resolve symlinks such as Safari.app so equivalent paths do not trigger rewrites.
 fn resolved(p: &Path) -> PathBuf {
     std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
 }
@@ -124,9 +120,8 @@ pub fn apply(ctx: &Ctx, layers: &[Layer]) -> Result<()> {
 
     let (apps, others): (Vec<&Item>, Vec<&Item>) = items.iter().partition(|i| i.is_app());
     let want = |v: &[&Item]| v.iter().map(|i| resolved(&i.path)).collect::<Vec<_>>();
-    // The Dock's plist stores view and sort settings as numbers that don't
-    // map one to one onto dockutil's flags, so compare paths there and the
-    // flags against what the last successful run applied.
+    // Dock plist numbers do not map directly to dockutil flags.
+    // Compare paths with the plist and flags with the last successful specification.
     let spec = spec(&items);
     let applied = ctx.state_dir.join("dock.applied");
     if current("persistent-apps") == want(&apps)
@@ -137,7 +132,7 @@ pub fn apply(ctx: &Ctx, layers: &[Layer]) -> Result<()> {
         return Ok(());
     }
     if !ctx.dry_run && !sys::has("dockutil") {
-        ui::warn("dockutil not installed (mac-base's Brewfile has it); leaving the Dock alone");
+        ui::warn("dockutil missing (see mac-base's Brewfile); leaving the Dock unchanged");
         return Ok(());
     }
 

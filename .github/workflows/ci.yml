@@ -21,15 +21,13 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
 
-  # The core layer has to work on a bare container, which is the only place
-  # that assumption gets tested honestly.
+  # Test core in a bare container.
   core-on-linux:
     runs-on: ubuntu-latest
     container: debian:bookworm-slim
     env:
-      # The container's $HOME (/github/home) is not root's home in passwd, so
-      # the guard would treat every step as a sandbox and skip the package
-      # installs this job exists to test. The guard step unsets this.
+      # Allow installs despite /github/home differing from the account home.
+      # The guard test unsets this override.
       DOTFILES_ALLOW_SANDBOXED_HOME: "1"
     steps:
       - name: install prerequisites
@@ -45,9 +43,8 @@ jobs:
         run: |
           # Packages, from the install itself rather than by hand.
           command -v zsh && command -v ssh-keygen
-          # The ssh config must parse (an unsupported keyword breaks all ssh)
-          # and apply. ssh expands ~ from passwd (/root), not $HOME, so point
-          # it at this $HOME explicitly.
+          # Check SSH parses and applies settings. It expands ~ from passwd (/root),
+          # so substitute $HOME explicitly.
           sed "s#~/#$HOME/#" ~/.ssh/config > /tmp/ssh_config
           ssh -F /tmp/ssh_config -G github.com | grep -qx 'user git'
           ssh -F /tmp/ssh_config -G example.com | grep -qx 'serveraliveinterval 60'
@@ -65,8 +62,7 @@ jobs:
           ./target/release/dotfiles install --profile core --no-signing -y >/tmp/second.log 2>&1
           cat /tmp/second.log
           grep -q "already linked" /tmp/second.log
-          # Asserting the absence of change is the part that actually tests it.
-          # Every change prints an `ok` line; a no-op prints `skip`.
+          # Reject change markers. An unchanged run prints skip.
           if grep -E "^ *ok |backed up existing|installing:" /tmp/second.log; then
             echo "second run modified state; not idempotent" >&2
             exit 1

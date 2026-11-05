@@ -1,5 +1,4 @@
-# Completion + plugins. Everything is guarded so this file is harmless on a
-# container that has none of it installed.
+# Skip missing plugins on bare containers.
 
 # -U keeps fpath de-duplicated, so re-sourcing ~/.zshrc does not grow it.
 typeset -U fpath
@@ -11,8 +10,7 @@ if command -v brew >/dev/null 2>&1; then
 fi
 
 autoload -Uz compinit
-# Rebuild the completion dump at most once a day; compinit's own security scan
-# is the slowest thing in a typical zsh startup.
+# Cache completions for a day to avoid repeated security scans.
 _zcompdump="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/zcompdump"
 [[ -d "${_zcompdump:h}" ]] || mkdir -p "${_zcompdump:h}"
 if [[ -n "$_zcompdump"(#qN.mh+24) ]]; then

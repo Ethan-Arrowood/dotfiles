@@ -18,7 +18,6 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
     Ok(())
 }
 
-/// Ghostty reads a plain text config, so it can be a dotfile like anything else.
 fn ghostty_config(ctx: &Ctx, layer_dir: &Path) -> Result<()> {
     let src = layer_dir.join("config/ghostty/config");
     if !src.is_file() {
@@ -26,8 +25,7 @@ fn ghostty_config(ctx: &Ctx, layer_dir: &Path) -> Result<()> {
     }
     let bin = Path::new("/Applications/Ghostty.app/Contents/MacOS/ghostty");
     if bin.is_file() && !ctx.dry_run {
-        // +validate-config exits 1 on a bad config. Capture rather than run so
-        // a typo'd option cannot abort the install.
+        // Report validation errors without aborting installation.
         let out = Cmd::new(bin.to_string_lossy())
             .arg("+validate-config")
             .arg(format!("--config-file={}", src.display()))
@@ -76,9 +74,7 @@ fn vscode_cli(ctx: &Ctx) -> Result<()> {
     link::link_file(ctx, bin, &ctx.home.join(".local/bin/code"))
 }
 
-/// Chrome policies in the user preference domain. An MDM-pushed managed
-/// preference always wins over these, which is the correct precedence on a
-/// work machine: these fill gaps, they do not fight IT.
+/// Set user Chrome policies. MDM-managed preferences take precedence.
 fn chrome_defaults(ctx: &Ctx) -> Result<()> {
     if !ctx.dry_run && !sys::allow_global_changes() {
         return Ok(());

@@ -1,20 +1,14 @@
 #!/usr/bin/env sh
-# Bootstrap for a machine with nothing on it.
+# Bootstrap a fresh machine with POSIX sh.
 #
 #   curl -fsSL https://raw.githubusercontent.com/Ethan-Arrowood/dotfiles/main/install.sh | sh
 #   curl -fsSL .../install.sh | sh -s -- --profile mac-minimal
 #
-# Clones the repo (HTTPS, since ssh keys will not exist yet) and fetches the
-# matching `dotfiles` binary from GitHub Releases, then hands off to it.
-# Nothing here needs Rust: the binary is prebuilt.
-#
-# Deliberately POSIX sh and dependency-free: this is the one piece that
-# cannot assume anything is already installed.
+# Clone over HTTPS before SSH keys exist, then fetch the release binary.
+# Rust is needed only for a source-build fallback.
 set -eu
 
-# Everything lives in main(), invoked on the last line. Piped into a shell, a
-# connection that drops mid-transfer would otherwise execute however much
-# arrived; this way an incomplete file never reaches the call.
+# Call main() last so a truncated piped download cannot execute partial setup.
 main() {
 
 REPO="${DOTFILES_REPO:-Ethan-Arrowood/dotfiles}"
@@ -25,8 +19,7 @@ VERSION="${DOTFILES_VERSION:-latest}"
 say() { printf '==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
-# A dry run passes through to `dotfiles install -n`. Before that, this script
-# must not install anything or move the checkout either.
+# Pass dry-run through to the CLI. Skip CLT installation and checkout updates.
 dry_run=
 for a in "$@"; do
   case "$a" in -n|--dry-run) dry_run=1 ;; esac
@@ -36,10 +29,8 @@ for tool in curl tar; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
 done
 
-# `command -v git` is not enough on macOS: /usr/bin/git exists as a stub even
-# with no Command Line Tools installed, so the check passes and the clone then
-# fails. Running git is the only real test. When it fails, open Apple's
-# installer: a headless install depends on undocumented behaviour.
+# macOS ships a git stub without CLT, so command -v is insufficient.
+# Run git to check. Use Apple's installer; headless installation is undocumented.
 if ! git --version >/dev/null 2>&1; then
   if [ "$(uname -s)" != "Darwin" ]; then
     die "git is required"
@@ -47,7 +38,7 @@ if ! git --version >/dev/null 2>&1; then
   say "git is not usable yet: the Xcode Command Line Tools are missing"
   [ -z "$dry_run" ] || die "dry run: would open Apple's Command Line Tools installer"
   xcode-select --install 2>/dev/null || true
-  say "Install them in the window that opened, then run this same command again."
+  say "Install them in the window, then rerun this command."
   exit 1
 fi
 
@@ -68,8 +59,7 @@ case "$(uname -s)" in
   Darwin) os=apple-darwin ;;
   Linux)
     os=unknown-linux-gnu
-    # The published builds are glibc-linked; on musl (Alpine) they will not
-    # run, so build from source there instead of downloading one.
+    # Release binaries need glibc. Build from source on musl (Alpine).
     if [ -f /etc/alpine-release ] || ! ldd --version 2>&1 | grep -qi glibc; then
       say "this looks like a musl system; the prebuilt binary is glibc-linked"
       musl=1
@@ -102,8 +92,7 @@ if [ -z "${musl:-}" ] && curl -fsSL "$url" -o "$tmp/dotfiles.tar.gz" 2>"$tmp/cur
   chmod +x "$BIN_DIR/dotfiles"
   say "installed $BIN_DIR/dotfiles"
 else
-  # Could be a missing release, but equally a DNS failure, a proxy, or a rate
-  # limit, so show what curl actually said rather than guessing.
+  # Show curl errors: missing releases, DNS, proxies and rate limits can all fail.
   if [ -z "${musl:-}" ]; then
     say "could not download $url"
     [ -s "$tmp/curl.err" ] && sed 's/^/    /' "$tmp/curl.err"

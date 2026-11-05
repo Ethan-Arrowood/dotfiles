@@ -1,14 +1,7 @@
-//! Generates ~/.config/dotfiles/init.sh, the file ~/.zshrc sources.
-//!
-//! Fragments are enumerated here, at generate time, and emitted as explicit
-//! `.` lines rather than globbed at startup. Globbing looked simpler but is
-//! not portable between the two shells this has to serve: zsh does not
-//! word-split unquoted parameters and aborts on an unmatched glob, and the
-//! obvious guard for the latter (`setopt local_options null_glob`)
-//! silently reverts every `setopt` a sourced fragment performs.
-//!
-//! Trade-off: a NEW fragment file needs `dotfiles install` re-run. Edits to
-//! existing fragments take effect in the next shell.
+//! Generate ~/.config/dotfiles/init.sh with explicit source lines.
+//! Runtime globbing breaks in zsh: it does not split unquoted variables and
+//! rejects unmatched globs. `setopt local_options null_glob` reverts sourced options.
+//! Rerun `dotfiles install` for new fragments. Edits apply in the next shell.
 
 use crate::ctx::Ctx;
 use crate::layer::Layer;
@@ -17,9 +10,8 @@ use anyhow::Result;
 use std::fmt::Write as _;
 use std::path::Path;
 
-/// Single-quote a value for shell. A repo path containing `"`, `$` or a
-/// backtick would otherwise break or inject into the generated init.sh, and
-/// .zshrc sources that unconditionally, so every new shell would error.
+/// Quote shell values to prevent metacharacters in paths from breaking or
+/// injecting commands into init.sh, which every new zsh sources.
 pub(crate) fn sh_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }

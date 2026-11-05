@@ -1,24 +1,5 @@
-//! Skills declared per layer, in a `Skillfile`.
-//!
-//! Skills are not vendored into this repo: their source lives in its own
-//! repository, which gets cloned once and then symlinked into
-//! `~/.claude/skills/`. Claude Code follows a symlinked skill directory and
-//! reads `SKILL.md` from the target, so the clone is simultaneously the
-//! installed skill and an editable checkout. Edit it in place and the change
-//! is live, no re-sync step.
-//!
-//! Format mirrors the Brewfile: one entry per line, `#` comments allowed.
-//!
-//!   repo  <owner>/<name>              clone it, link every skill it contains
-//!   skill <owner>/<name>#<skill>      clone it, link just that one skill
-//!   rules <owner>/<name>              clone it, link its rules/ into
-//!                                     ~/.claude/rules/
-//!   hook  <agent> <owner>/<name>#<path> <Event> [timeout]
-//!                                     clone it, register <path> as a hook
-//!                                     for `claude` or `codex`
-//!
-//! Repos are cloned to `$DOTFILES_SRC_DIR/<owner>/<name>`, default `~/dev`,
-//! matching the existing `~/dev/<owner>/<repo>` layout.
+//! Install skills, rules and hooks from layer Skillfiles. See README.md for syntax.
+//! Clone under $DOTFILES_SRC_DIR (default ~/dev), then link the editable checkouts.
 
 use crate::ctx::Ctx;
 use crate::hooks::{self, Agent};
@@ -38,9 +19,7 @@ pub enum Entry {
         name: String,
         skill: String,
     },
-    /// The repo's `rules/*.md`. Separate from `repo` so an org skills repo
-    /// that grows a `rules/` directory cannot start loading into every
-    /// session unasked.
+    /// Explicit rule opt-in prevents a skills repo from silently adding global rules.
     Rules { owner: String, name: String },
     /// A script in the repo, registered as an agent hook.
     Hook {
@@ -75,9 +54,8 @@ impl Entry {
     }
 }
 
-/// Strip a trailing `#` comment without eating the `#` that separates a repo
-/// from a skill name. A `#` only starts a comment at the start of a line or
-/// after whitespace, so `skill a/b#c  # note` keeps `skill a/b#c`.
+/// Strip `#` comments only at line start or after whitespace.
+/// Keep the separator in `skill a/b#c`.
 pub(crate) fn strip_comment(line: &str) -> &str {
     let bytes = line.as_bytes();
     for (i, &c) in bytes.iter().enumerate() {
@@ -88,8 +66,7 @@ pub(crate) fn strip_comment(line: &str) -> &str {
     line
 }
 
-/// Parse a Skillfile. Malformed lines are reported with their line number
-/// rather than skipped silently.
+/// Parse entries and report malformed lines with line numbers.
 pub fn parse(text: &str) -> (Vec<Entry>, Vec<String>) {
     let mut entries = Vec::new();
     let mut problems = Vec::new();
@@ -124,7 +101,6 @@ pub fn parse(text: &str) -> (Vec<Entry>, Vec<String>) {
             continue;
         };
 
-        // owner/repo, optionally #skill
         let (slug, skill) = match target.split_once('#') {
             Some((s, k)) => (s, Some(k)),
             None => (target, None),
@@ -202,9 +178,7 @@ pub fn parse(text: &str) -> (Vec<Entry>, Vec<String>) {
     (entries, problems)
 }
 
-/// Where repo checkouts live. Made absolute, because a relative
-/// DOTFILES_SRC_DIR would end up inside symlink targets and hook commands,
-/// where it resolves against a different directory.
+/// Make checkout paths absolute so links and hook commands resolve consistently.
 pub(crate) fn src_root(ctx: &Ctx) -> PathBuf {
     let p = std::env::var_os("DOTFILES_SRC_DIR")
         .map(PathBuf::from)
@@ -218,8 +192,7 @@ fn checkout_path(ctx: &Ctx, owner: &str, name: &str) -> PathBuf {
     src_root(ctx).join(owner.to_lowercase()).join(name)
 }
 
-/// Clone if absent, otherwise leave it alone: these are working checkouts
-/// the user edits, so pulling could stomp on in-flight work.
+/// Clone missing repos. Leave existing working checkouts alone.
 pub(crate) fn ensure_clone(ctx: &Ctx, owner: &str, name: &str) -> Result<Option<PathBuf>> {
     let dest = checkout_path(ctx, owner, name);
     let slug = format!("{owner}/{name}");
@@ -245,11 +218,8 @@ pub(crate) fn ensure_clone(ctx: &Ctx, owner: &str, name: &str) -> Result<Option<
         std::fs::create_dir_all(parent)?;
     }
 
-    // A public repo clones over HTTPS with no credentials, which a fresh
-    // machine has none of yet (core runs before gh is installed, and before
-    // the ssh key is registered). The prompt is off so a private repo fails
-    // fast instead of asking. Then gh, which handles private and internal
-    // repos, then ssh.
+    // Try HTTPS without prompts for fresh machines lacking credentials.
+    // Then try gh for private repos, then SSH.
     let https = format!("https://github.com/{slug}.git");
     let mut ok = Cmd::new("git")
         .args(["clone", "--quiet", &https])
@@ -278,12 +248,8 @@ pub(crate) fn ensure_clone(ctx: &Ctx, owner: &str, name: &str) -> Result<Option<
     Ok(Some(dest))
 }
 
-/// Directories containing a `SKILL.md`, searched to `max_depth`.
-///
-/// Bounded on purpose: the three repos in use put skills at depth 1
-/// (`<skill>/SKILL.md`) or depth 2 (`skills/<skill>/SKILL.md`), and unlimited
-/// recursion would pick up example or fixture SKILL.md files nested inside a
-/// skill. Descent stops as soon as a directory is identified as a skill.
+/// Find `SKILL.md` through `max_depth` levels. Stop inside a skill so nested
+/// examples and fixtures do not become separate skills.
 pub fn discover(root: &Path, max_depth: usize) -> Vec<PathBuf> {
     fn walk(dir: &Path, depth: usize, max: usize, out: &mut Vec<PathBuf>) {
         if depth > max {
@@ -319,10 +285,8 @@ pub fn discover(root: &Path, max_depth: usize) -> Vec<PathBuf> {
 
 const MAX_DEPTH: usize = 2;
 
-/// Skill names already linked in this run, and the repo that linked each.
-/// Shared across layers: two layers naming the same skill would otherwise
-/// relink it back and forth, and the second run would hit the first run's
-/// backup.
+/// Track claimed skill names across layers to prevent relinking back and forth
+/// and colliding with earlier backups.
 pub type Claimed = std::collections::HashMap<String, String>;
 
 pub fn install(ctx: &Ctx, layer: &Layer, claimed: &mut Claimed) -> Result<()> {
@@ -562,8 +526,7 @@ mod tests {
         assert!(p.ends_with("ethan-arrowood/agentic"), "{}", p.display());
     }
 
-    /// The three repos in use have three different layouts, so discovery must
-    /// find SKILL.md rather than assume a path.
+    /// Support both top-level skills and skills/ layouts.
     #[test]
     fn discovers_skills_at_depth_one_and_two() {
         let tmp = std::env::temp_dir().join(format!("dfskills{}", std::process::id()));

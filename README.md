@@ -1,52 +1,42 @@
 # dotfiles
 
-Machine setup composed from layers. One repo covers a Linux devcontainer and a fresh MacBook; you pick how much of it applies.
+A Rust CLI that sets up my Macs, Linux containers and remote machines from layers.
+
+On a fresh machine:
 
 ```bash
-# fresh machine, nothing installed
 curl -fsSL https://raw.githubusercontent.com/Ethan-Arrowood/dotfiles/main/install.sh | sh -s -- --profile mac-dev
+```
 
-# already cloned
+With `dotfiles` installed:
+
+```bash
 dotfiles install --profile mac-dev
 ```
 
-On a factory-fresh Mac, the first run opens Apple's Command Line Tools installer and stops. Install them, run the same command again, and it clones the repo, downloads the binary and runs it.
+On a fresh Mac, install Apple's Command Line Tools when prompted, then rerun the command. [`install.sh`](install.sh) clones or updates the repo and downloads a prebuilt binary. If the download fails or the platform needs a source build, it uses `cargo build` if available.
 
-Safe to run twice. A second run re-links nothing, rewrites no generated file or `defaults` value that already matches, and leaves installed toolchains alone. CI asserts this for the core profile. Add `--dry-run` to see the plan without changing anything, and `--update` to refresh installed toolchains (rustup, uv), which never happens otherwise. The Xcode Command Line Tools are left to Software Update once installed.
+Use `--dry-run` (`-n`) to preview CLI changes. The bootstrap script still downloads the repo and binary. Repeated installs skip matching links, generated files, defaults and installed toolchains. `--update` refreshes rustup and uv. Software Update handles installed Xcode Command Line Tools.
 
-Auditing rather than using it? [ARCHITECTURE.md](ARCHITECTURE.md) walks the code: the install loop, every path that touches `$HOME`, the three dangerous operations and their guards, and what the tests actually assert.
-
-## How it is built
-
-A Rust binary (the orchestrator) plus this repo (the layer assets), the same split [chezmoi](https://chezmoi.io) uses. **Rust is not needed on the target machine**: `install.sh` downloads a prebuilt binary for the platform from GitHub Releases. It falls back to `cargo build` only if no release matches.
-
-The assets stay as plain text on purpose: Brewfiles, `.zshrc` fragments, ssh config, the Ghostty config. Those are configuration, not code, and they have to be symlinkable so an edit in `$HOME` and an edit in the repo are the same edit. Embedding them in the binary would break that.
-
-```text
-src/            the orchestrator
-  layer.rs      registry: the single source of truth for which layers exist
-  layers/       one module per layer
-  shellinit.rs  generates ~/.config/dotfiles/init.sh
-  signing.rs    ssh commit signing
-layers/         layer assets (symlinked into $HOME)
-profiles/       named layer sets
-```
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the install loop, file inventory, guards and tests.
 
 ## Profiles
+
+Each Mac profile adds to the one above it. The default is `mac-dev` on macOS outside containers, otherwise `core`.
 
 | Profile | Layers | For |
 | --- | --- | --- |
 | `core` | core | Linux devcontainers, CI images, remote boxes |
-| `mac-minimal` | + mac-base, mac-apps | VMs and loaners: browse, edit, run an agent |
-| `mac-dev` | + mac-langs | Working dev machine, no quality-of-life apps |
-| `mac-full` | + mac-apps-extra | Daily driver |
+| `mac-minimal` | + mac-base, mac-apps | VMs and loaners |
+| `mac-dev` | + mac-langs | Development |
+| `mac-full` | + mac-apps-extra | Daily use |
 
-Profiles are starting points, not fixed sets:
+Add or omit layers with `--with` and `--without`. You cannot omit `core`.
 
 ```bash
-dotfiles install --profile mac-full --without mac-apps-extra   # skip Spotify/Zoom/etc
-dotfiles install --profile mac-full --with work-harper         # add work config
-dotfiles install --profile core --with mac-apps                # build your own
+dotfiles install --profile mac-full --without mac-apps-extra
+dotfiles install --profile mac-full --with work-harper
+dotfiles install --profile core --with mac-apps
 ```
 
 ## Layers
@@ -58,61 +48,36 @@ dotfiles install --profile core --with mac-apps                # build your own
 | `mac-langs` | macOS | Node (fnm), Rust (rustup), Python (uv), C/C++, Java |
 | `mac-apps` | macOS | Chrome, VS Code, Claude, Ghostty, Dashlane CLI |
 | `mac-apps-extra` | macOS | Slack, Zoom, Spotify, Discord, Podman, DaisyDisk |
-| `work-harper` | any | Codex, Antigravity (`agy`) and gcloud CLIs, Tailscale (macOS), the [dispatch](src/layers/work_harper.rs) client and Claude plugin, Harper dev-server aliases, LastPass (opt-in; no identity override) |
+| `work-harper` | any | [dispatch](src/layers/work_harper.rs) client and Claude plugin, Harper aliases and skills. On macOS: Codex, Antigravity (`agy`), gcloud, Tailscale, LastPass. Opt-in; no identity override |
 
-`core` is the only layer that has to work everywhere, so it assumes nothing: no Homebrew, no Node, no GUI. Every optional integration in it (starship, fzf, the zsh plugins, git-delta) is guarded by a `command -v` check and degrades to a sane built-in.
+`core` needs no Homebrew, Node or GUI. It skips optional shell integrations when absent. Other layers' Brewfiles need Homebrew; `mac-base` installs it.
 
 ## Commands
 
-```bash
-dotfiles install [--profile NAME] [--with LAYER] [--without LAYER] [--dry-run] [--yes]
-                 [--no-signing] [--update]
-dotfiles list      # profiles and layers
-dotfiles status    # what this machine has installed, and where links point
-dotfiles link      # re-link files and re-apply Skillfiles, no packages
-dotfiles doctor    # missing tools, ssh and signing setup, broken links
-dotfiles github    # register this machine's ssh key with GitHub (auth + signing)
-```
+| Command | Purpose |
+| --- | --- |
+| `dotfiles install [--profile NAME] [--with LAYER] [--without LAYER] [--dry-run] [--yes] [--no-signing] [--update]` | Install selected layers. `--yes` (`-y`) accepts prompts |
+| `dotfiles list` | List profiles and layers |
+| `dotfiles status` | Show recorded layers and dotfile links |
+| `dotfiles link` | Re-link `home/` files and reapply Skillfiles, without packages. Use `dotfiles install` for SSH and app links |
+| `dotfiles doctor` | Check tools, SSH, signing and broken links |
+| `dotfiles github` | Register and verify SSH authentication and signing keys |
 
 ### Safety
 
-Anything machine-global is skipped when `$HOME` is not your real home directory, because that means a test harness with a sandboxed `$HOME`. That covers `brew install`, `defaults write`, the Dock, `chsh`, `ssh-add --apple-use-keychain`, the toolchain installers, and key uploads to GitHub. File operations follow `$HOME` and stay contained; these do not, and would escape the sandbox.
-
-The guard **fails closed**: if it cannot determine your real home, it blocks rather than allows. `DOTFILES_ALLOW_SANDBOXED_HOME=1` is the escape hatch (only the value `1` counts), and CI asserts the guard actually fires.
+The CLI skips machine-global changes when `$HOME` differs from the account's home or cannot be verified. `DOTFILES_ALLOW_SANDBOXED_HOME=1` overrides this guard. See [guarded operations](ARCHITECTURE.md#the-three-dangerous-operations).
 
 ## How it works
 
-```text
-layers/core/
-├── home/          symlinked into $HOME
-├── shell/*.sh     POSIX fragments, sourced by bash and zsh
-├── zsh/*.zsh      zsh-only fragments
-└── ssh/*.conf     ~/.ssh/config.d/ fragments
-```
+Layer assets link into `$HOME`. Editing a linked file also edits the repo. Replaced files go to `~/.dotfiles-backup/<timestamp>/`; real directories stay untouched. See [file handling](ARCHITECTURE.md#everything-that-touches-home).
 
-The directory name **is** the layer name, and install order is the declaration order of `registry()` in `src/layer.rs`: one ordered list, one source of truth.
+Shell fragments load in layer order, then filename order. Edits take effect in the next shell. After adding a fragment, rerun `dotfiles install` to regenerate `~/.config/dotfiles/init.sh`.
 
-Numbers on the *fragment files* are still load-bearing: they order files **within** a layer, and that comes from a filesystem sort.
-
-`~/.zshrc` is a three-line loader symlinked out of this repo. The real work happens in `~/.config/dotfiles/init.sh`, generated at install time, which pins `DOTFILES_ROOT` and lists each fragment as an explicit `source` line:
-
-```sh
-# --- core ---
-. "$DOTFILES_ROOT"/'layers/core/shell/10-env.sh'
-if [ -n "${ZSH_VERSION:-}" ]; then
-  . "$DOTFILES_ROOT"/'layers/core/zsh/00-options.zsh'
-fi
-```
-
-**Editing** a fragment takes effect in the next shell. **Adding** one means re-running `dotfiles install` so it gets listed. That's cheap, since every step is a no-op when already done.
-
-Files in `$HOME` are symlinks back into the repo, so `vim ~/.zshrc` and `git diff` here show the same edit. Anything already present is moved to `~/.dotfiles-backup/<timestamp>/` first.
-
-One consequence to watch: an installer that appends to `~/.zshrc` or `~/.zshenv` follows the symlink and writes **into this repo**. rustup and uv are both invoked with the flags that stop them doing so (`--no-modify-path`, `INSTALLER_NO_MODIFY_PATH=1`), but a tool you run by hand can still do it. It shows up as an unexpected `git diff` here rather than as invisible local drift. Review it rather than committing it blind.
+Installers that append to `~/.zshrc` or `~/.zshenv` follow those links into this repo. Review unexpected diffs. This tool passes `--no-modify-path` to rustup and `INSTALLER_NO_MODIFY_PATH=1` to uv to prevent that.
 
 ## Adding a layer
 
-Three steps. Add a module under `src/layers/`:
+Add a module under `src/layers/`:
 
 ```rust
 // src/layers/my_thing.rs
@@ -122,7 +87,7 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
 }
 ```
 
-Declare it in `src/layers/mod.rs` with `pub mod my_thing;`, and add an entry to `registry()` in `src/layer.rs`:
+Declare `pub mod my_thing;` in [`src/layers/mod.rs`](src/layers/mod.rs). Add this entry to `registry()` in [`src/layer.rs`](src/layer.rs), in install order:
 
 ```rust
 Layer {
@@ -133,99 +98,54 @@ Layer {
 },
 ```
 
-Position in that list is the install order. Then create `layers/my-thing/` for its assets. A test fails if the directory is missing, since the name is the only thing pointing at it. It appears in `dotfiles list` immediately.
-
-Helpers available: `ui::{head,step,ok,skip,warn,detail}`, `link::{link_file, link_home_dir,write_file}`, `brew::bundle`, `sys::{has,which,is_macos, is_container,allow_global_changes}`.
-
-`Brewfile`s are a plain list, not `brew bundle` syntax: `formula <name>`, `cask <name>`, `tap <name>`, one per line, `#` comments allowed. A malformed line is reported with its line number. A cask that has been renamed or pulled warns and the run continues.
-
-macOS settings live in [`layers/mac-base/Defaultsfile`](layers/mac-base/Defaultsfile), one `domain key type value` per line. Each key is read first and only written when it differs.
-
-A `Dockfile` lists Dock items, one path per line, optionally followed by `dockutil` flags. Every selected layer's `Dockfile` is combined in layer order and the Dock is set to exactly that, after all layers have installed, so Chrome (from [`mac-apps`](layers/mac-apps/Dockfile)) joins mac-base's [items](layers/mac-base/Dockfile) only on a machine that has it. The Dock is left alone when its items match and the flags match what the last run applied (recorded in `~/.config/dotfiles/dock.applied`).
+Create `layers/my-thing/` for its assets. A test checks that it exists. The layer then appears in `dotfiles list`. See [asset formats and helpers](ARCHITECTURE.md#layer-assets).
 
 ## Agent config
 
-Skills, rules and hooks for Claude Code and Codex live in [`Ethan-Arrowood/agentic`](https://github.com/Ethan-Arrowood/agentic), not here. Its README explains each one. The [core](layers/core/Skillfile) and [work-harper](layers/work-harper/Skillfile) Skillfiles wire them up:
+[agentic](https://github.com/Ethan-Arrowood/agentic) owns the skills, rules and hooks. The [core](layers/core/Skillfile) and [work-harper](layers/work-harper/Skillfile) Skillfiles install them:
 
 | Skillfile line | Result |
 | --- | --- |
-| `repo  Ethan-Arrowood/agentic` | Every skill linked into `~/.claude/skills/` |
-| `rules Ethan-Arrowood/agentic` | `rules/*.md` and `rules/lang/` linked into `~/.claude/rules/`. Each `rules/orgs/<org>.md` linked as `~/dev/<org>/AGENTS.md` |
-| `hook  claude Ethan-Arrowood/agentic#agents/claude/sync.sh SessionStart 15` | The Claude sync hook registered in `~/.claude/settings.json`, and run once |
-| `hook codex Ethan-Arrowood/agentic#agents/codex/sync.sh SessionStart` (work-harper) | The Codex sync hook registered in `~/.codex/hooks.json` for `startup`, and run once. It generates `~/.codex/AGENTS.md` and links skills into `~/.agents/skills/` |
+| `repo  Ethan-Arrowood/agentic` | Skills linked into `~/.claude/skills/` |
+| `rules Ethan-Arrowood/agentic` | Global rules in `~/.claude/rules/`; org rules at `~/dev/<org>/AGENTS.md` where the org directory exists |
+| `hook  claude Ethan-Arrowood/agentic#agents/claude/sync.sh SessionStart 15` | Sync hook in `~/.claude/settings.json`; runs once at install |
+| `hook codex Ethan-Arrowood/agentic#agents/codex/sync.sh SessionStart` (work-harper) | Sync hook in `~/.codex/hooks.json` for `startup`; runs once at install to generate `~/.codex/AGENTS.md` and link `~/.agents/skills/` |
 
-A SessionStart hook runs once at install, after creating the directories it installs into, so the first session starts synced. Codex runs a new hook only after you trust it with `/hooks`, so the tool prints that reminder.
+Trust new Codex hooks with `/hooks`. Start a new session to load changed rules. Claude Code skips symlinked user-scope rules in desktop Cowork sessions.
 
-Global instructions are **rule files**, not a `CLAUDE.md`. Everything in `~/.claude/rules/` loads every session (or, with `paths:` frontmatter, once a matching file is touched). A repo can own whole topic files while `~/.claude/CLAUDE.md` stays untracked and machine-specific. Nothing merges markdown sections, so a reinstall never clobbers a hand edit to `CLAUDE.md`.
-
-`rules` is a separate line from `repo`, so an org skills repo that grows a `rules/` directory can't start loading into every session unasked.
-
-Org rules can't use `paths:`, because user-level patterns match against the session's working directory, not the GitHub org. Claude Code does load every `AGENTS.md` above the session, and repos live at `~/dev/<org>/<repo>`. So `~/dev/nodejs/AGENTS.md` links to `rules/orgs/nodejs.md`. The link is made only where the org directory exists, and an existing `AGENTS.md` that isn't the link is left alone. An org `CLAUDE.md` that is exactly the one-line import older versions wrote moves to the backup directory, so the rules don't load twice.
-
-By default, any `CLAUDE.md` in or above a repo makes Claude Code skip every `AGENTS.md`, the org rules included. So when org rules are linked, the tool also sets `pluginConfigs."cc-plugin-agents-md@builtin".options.instructionFiles` to `claude-md-and-agents-md`. A value you set yourself is never overridden.
-
-`~/.claude/settings.json` and `~/.codex/hooks.json` are merged, never linked or replaced. The agent and you both edit them. The tool adds only what is missing, keeps everything else in its original order, backs up the original once per run, and leaves a file it can't parse untouched.
-
-New or changed rule files load at the **start of the next session**. A rules directory that didn't exist when a session started isn't watched.
-
-Note: Claude Code skips a symlinked user-scope rule file in Cowork sessions on the desktop. Everywhere else it follows the link normally.
+`~/.claude/CLAUDE.md` stays machine-local. The tool merges agent JSON files and preserves your existing plugin options. See [merge and org-rule handling](ARCHITECTURE.md#agent-config).
 
 ## Skills
 
-Skills are not vendored here. Their source lives in its own repository, which gets cloned once and then symlinked into `~/.claude/skills/`. Claude Code follows a symlinked skill directory and reads `SKILL.md` from the target, so the clone is both the installed skill *and* an editable checkout. Edit it in place and the change is live, with no re-sync step.
+| Skillfile syntax | Selects |
+| --- | --- |
+| `repo <owner>/<repo>` | Every skill |
+| `skill <owner>/<repo>#<skill>` | One skill |
+| `rules <owner>/<repo>` | Rules, separately from skills |
+| `hook <agent> <owner>/<repo>#<path> <Event> [secs]` | A hook for `claude` or `codex` |
 
-A layer declares what it wants in a `Skillfile`, same format as a `Brewfile`:
+Repos clone to `$DOTFILES_SRC_DIR/<owner>/<repo>` (default `~/dev`), with lowercase owners. Cloning tries HTTPS, then `gh repo clone`, then SSH. The installer leaves existing checkouts alone. agentic's sync hooks may run `git pull --ff-only`.
 
-```text
-repo  <owner>/<repo>                         every skill in the repo
-skill <owner>/<repo>#<skill>                 just that one
-rules <owner>/<repo>                         its rules/ -> ~/.claude/rules/
-hook  <agent> <owner>/<repo>#<path> <Event> [secs]   a claude or codex hook
-```
-
-```text
-# layers/core/Skillfile
-repo  Ethan-Arrowood/agentic
-rules Ethan-Arrowood/agentic
-hook  claude Ethan-Arrowood/agentic#agents/claude/sync.sh SessionStart 15
-
-# layers/work-harper/Skillfile
-repo harperfast/skills
-repo harperfast/skills-internal
-hook codex Ethan-Arrowood/agentic#agents/codex/sync.sh SessionStart
-```
-
-Repos clone to `$DOTFILES_SRC_DIR/<owner>/<repo>`, default `~/dev`, with the owner lowercased so `Ethan-Arrowood/agentic` lands beside `~/dev/ethan-arrowood/`. Several lines naming one repo clone it once. A clone tries HTTPS first, which works for a public repo on a fresh machine with no credentials yet. Then `gh repo clone`, for private and internal repos, then `git clone` over ssh.
-
-The installer **never pulls or modifies** an existing checkout. These are working trees you edit, so updating them is your call. A hook it runs may: agentic's sync hooks fast-forward their clone with `git pull --ff-only`, which never merges or discards local work.
-
-Skills are found by locating `SKILL.md` rather than by assuming a path, because layouts differ: `harperfast/skills` puts skills at the top level, while `Ethan-Arrowood/agentic` and `harperfast/skills-internal` nest them under `skills/`. The search is bounded to two levels and stops descending once a directory is identified as a skill, so an example `SKILL.md` inside a skill does not become a phantom entry.
-
-A local-only skill that is a real directory in `~/.claude/skills/` coexists fine: nothing touches a name no `Skillfile` declares. When two layers declare the same skill name, the first one wins and the other is reported.
+Skills link to those editable checkouts, so edits apply without syncing. The first layer claiming a skill name wins. Local skill directories stay untouched. Remove `harperfast/skills-internal` from the work Skillfile on machines not used for Harper contribution.
 
 ## Machine-local escape hatches
 
-Nothing here needs a fork:
-
 | File | Purpose |
 | --- | --- |
-| `~/.zshrc.local` | Sourced last by every interactive zsh |
-| `~/.zshenv.local` | Sourced by every zsh, before `init.sh`. Set inputs like `DOTFILES_NO_AUTOCD` and `HARPER_DEV_ROOT` here |
-| `~/.zprofile.local` | Login shells |
-| `~/.gitconfig.local` | Git settings for this machine only |
+| `~/.zshrc.local` | Runs last in interactive zsh |
+| `~/.zshenv.local` | Runs in every zsh before `init.sh`. Set `DOTFILES_NO_AUTOCD` and `HARPER_DEV_ROOT` here |
+| `~/.zprofile.local` | Login shell settings |
+| `~/.gitconfig.local` | Machine-specific Git settings |
 
 ## SSH
 
-The core layer sets SSH up on every machine, macOS or container:
+`core` links SSH fragments into `~/.ssh/config.d/` and prepends `Include ~/.ssh/config.d/*` to `~/.ssh/config`, backing up the original. The managed `github.com` settings take precedence; fallback defaults preserve your other host settings.
 
-- `~/.ssh/config.d/` fragments, symlinked from the repo. `~/.ssh/config` gets a single `Include ~/.ssh/config.d/*` line prepended (original backed up), so your own host entries stay where they are.
-- `Host github.com` with `User git`, `AddKeysToAgent`, `UseKeychain` and the identity file. `IgnoreUnknown UseKeychain` keeps the same file working on Linux, where that option does not exist and would otherwise make ssh refuse to parse the config at all.
-- Generates an ed25519 key if there isn't one (it prompts for a passphrase; unattended runs print the command instead of making a passphraseless key).
-- Loads it into the agent, with `--apple-use-keychain` on macOS so it survives reboots.
+Outside containers, it creates a missing ed25519 key and prompts for a passphrase. Without a terminal, it prints the command instead. It loads the key into the agent, using `--apple-use-keychain` on macOS to save the passphrase.
 
-Fallback defaults live in `99-defaults.conf` under `Match final`, not `Host *`. ssh takes the **first** value it sees for a keyword, and the Include sits at the top of `~/.ssh/config`, so a `Host *` block there would override every host entry of yours below it. A `Match final` block is read in a last pass and only fills in what nothing else set.
+`DOTFILES_SSH_KEY` overrides `~/.ssh/id_ed25519`. For SSH authentication with another path, also add a matching `IdentityFile` in `~/.ssh/config.d/`.
 
-Git pushes to `https://github.com/` URLs over SSH (`pushInsteadOf`). Clones and fetches keep the URL you give them, so an HTTPS clone made before any key exists can still pull.
+Git pushes `https://github.com/` URLs over SSH (`pushInsteadOf`). Clones and fetches keep their given URL.
 
 ## Registering keys with GitHub
 
@@ -233,48 +153,36 @@ Git pushes to `https://github.com/` URLs over SSH (`pushInsteadOf`). Clones and 
 dotfiles github
 ```
 
-GitHub treats these as two separate uploads of the same key:
+The command handles `gh auth login`, missing token scopes and uploads, asking before account changes. It checks SSH authentication and makes a signed commit in a temporary repo to verify local signing.
 
-| What | Purpose | Token scope |
+| Key type | Purpose | Token scope |
 | --- | --- | --- |
-| ssh **authentication** key | `git push` works | `admin:public_key` |
-| ssh **signing** key | commits show Verified | `admin:ssh_signing_key` |
+| Authentication | `git push` | `admin:public_key` |
+| Signing | Verified commits | `admin:ssh_signing_key` |
 
-The same ssh key has to be uploaded **twice**, once as each type. `dotfiles github` checks what is already registered, requests any missing token scope for you, uploads only what is needed, and then verifies by authenticating over ssh and making a real signed commit in a temp repo. Every upload asks first; nothing touches your account unattended.
+Upload the same public key as both types. A missing signing upload leaves commits Unverified even when pushes work. Configure signing with `dotfiles install` first.
 
 ## Commit signing
 
-One method: **the machine's own ssh key**. The same key that pushes also signs.
+The machine's SSH key signs commits and tags. `install` configures signing when its public key is usable; otherwise it leaves signing unconfigured and prints setup steps. Use `--no-signing` to opt out.
 
-There is no mode to choose: a machine either has a key or it does not. If it does, commits are signed; if not, `install` says so and tells you how to make one. `--no-signing` opts out, and exists for CI.
-
-Nothing is written into `~/.gitconfig`. The settings go in a generated include ([`signing.rs`](src/signing.rs)), so a machine with no key gets a working git rather than one that fails on every commit. Signing also writes `~/.ssh/allowed_signers`, without which git can create signatures but not verify its own.
-
-**The catch:** GitHub keeps *two* lists, authentication keys and signing keys, and the same public key has to be uploaded to both. Pushing works with only the first, so a missing signing key shows up as **Unverified** commits and nothing else. `dotfiles github` does both uploads; `dotfiles install` checks and tells you if one is missing.
+Settings live in `~/.config/dotfiles/gitconfig.signing`. `~/.ssh/allowed_signers` enables local verification. The tool never reads private key material.
 
 ## Machines, containers and remote boxes
 
-The rule: **a laptop's private key never leaves that laptop.** Other machines borrow it through the agent, or get a key of their own.
+Keep each private key on its machine. Forward its agent or give another machine its own key.
 
-| Where | Auth (push) | Signing | What to do |
-| --- | --- | --- | --- |
-| Your laptops | own key each | own key each | `dotfiles install` |
-| Devcontainer | host agent, forwarded | host agent, forwarded | `dotfiles install --profile core` inside |
-| Remote box you use often | own key | own key | `dotfiles install --profile core` there |
-| Remote box, one-off | forwarded agent | forwarded agent | `ssh -A`, scoped to that host |
-| CI | deploy key / token | usually unsigned | out of scope for this repo |
-
-### Why the agent is enough
-
-`ssh-keygen -Y sign` will use a key held by the agent when the private key file is not on disk. So a forwarded agent gives a container or remote box the ability to both push *and* sign, while the private key never leaves your laptop. Verified: with the private key file deleted and only the agent holding it, `git commit` produces `%G? = G`.
-
-This is why signing is ssh-only. Agent forwarding is built into ssh and into VS Code's devcontainer and Remote-SSH support; the gpg equivalent means forwarding the gpg-agent socket via `RemoteForward`, with matching versions and `extra-socket` on both ends. It works, but it is a thing you maintain forever.
+| Where | Authentication and signing | Setup |
+| --- | --- | --- |
+| Laptop | Own key | `dotfiles install` |
+| Devcontainer | Forwarded host agent | `dotfiles install --profile core` inside |
+| Regular remote box | Own key | `dotfiles install --profile core` there |
+| One-off remote box | Forwarded agent | `ssh -A`, scoped to that host |
+| CI | Deploy key or token; usually unsigned | Outside this repo's scope |
 
 ### Devcontainers, specifically
 
-VS Code already forwards your ssh agent and copies your `~/.gitconfig` into the container. That gets you push and the right author identity, but **not signing**, because the copied gitconfig's `[include]` lines point at `~/.config/dotfiles/gitconfig.signing`, which does not exist in the container. Git ignores missing includes silently, so commits come out unsigned with no warning.
-
-Fix it by running the core layer inside the container:
+VS Code forwards the SSH agent and copies `~/.gitconfig`, but its signing include is absent in a new container. Run core inside the container and mount the public key:
 
 ```jsonc
 // .devcontainer/devcontainer.json
@@ -285,15 +193,11 @@ Fix it by running the core layer inside the container:
 }
 ```
 
-`DOTFILES_SSH_KEY` is the load-bearing line. Without it the installer looks for `~/.ssh/id_ed25519.pub`, which does not exist in the container, and falls through to unsigned: the exact silent failure described above. It points at the *private* key path; the `.pub` suffix is appended, and only the public half needs to be mounted.
-
-The core layer detects the container, leaves the login shell alone, skips key generation, and configures signing against the forwarded agent. Only the *public* key is mounted; the private key stays on the host.
+`DOTFILES_SSH_KEY` names the private-key path; the installer appends `.pub`. Only mount the public key. Without this override, it looks for `~/.ssh/id_ed25519.pub` and leaves signing unconfigured if absent. Core skips key generation and login-shell changes in containers. The forwarded agent signs without a private key file in the container.
 
 ### Remote servers
 
-For a box you use regularly, give it its own key and run `dotfiles install --profile core` on it. Per-machine keys mean revoking one machine is one click in GitHub, with nothing else to rotate.
-
-For a one-off, forward the agent, but scope it to that host, never globally:
+Give regular remote machines their own keys so you can revoke each separately. For one-off access, scope forwarding to one host:
 
 ```text
 # ~/.ssh/config.d/50-mybox.conf
@@ -301,17 +205,17 @@ Host mybox
     ForwardAgent yes
 ```
 
-`ForwardAgent yes` under `Host *` would hand your agent to every server you touch, and anyone with root on the far end can use it for as long as you are connected. That is why this repo's `99-defaults.conf` does not set it.
+Never put `ForwardAgent yes` under `Host *`. Root on a remote server can use your forwarded agent while connected.
 
 ## The old GPG key (historical)
 
-Commits were GPG-signed through 2026 with key `79007EFD4678CB94` (RSA 4096, expires 2028-07-19). **Dashlane holds both halves.** That is the only copy, and it is where it should stay.
+Commits were GPG-signed through 2026 with `79007EFD4678CB94` (RSA 4096, expires 2028-07-19). Dashlane holds the only copy of both halves. This tool no longer uses it.
 
-This tool no longer touches it. Signing is ssh-only, so nothing here needs a portable private key, and the code never handles key material. If you ever need the old key back (to verify an old signature, say):
+For manual recovery, find the id with `dcli password "GPG signing key" -o json`, then import it:
 
 ```bash
 dcli read 'dl://<secret-id>' | gpg --import
-gpg --edit-key 79007EFD4678CB94 trust   # 5 (ultimate), then quit
+gpg --edit-key 79007EFD4678CB94 trust
 ```
 
-Find the id with `dcli password "GPG signing key" -o json`. That is a manual step on purpose: a key you need once every few years is not worth a code path.
+Select `5` (ultimate), then quit.

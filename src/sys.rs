@@ -10,8 +10,7 @@ pub fn is_macos() -> bool {
     std::env::consts::OS == "macos"
 }
 
-/// Inside a container / devcontainer / CI, where prompting and GUI installs
-/// make no sense and the host's ssh agent is usually forwarded in.
+/// Detect containers where GUI installs and login-shell changes do not apply.
 pub fn is_container() -> bool {
     for v in ["REMOTE_CONTAINERS", "CODESPACES", "DEVCONTAINER"] {
         if std::env::var_os(v).is_some() {
@@ -31,7 +30,6 @@ pub fn which(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path).find_map(|dir| {
         let full = dir.join(name);
-        // Executable and not a directory.
         if full.is_file() && is_executable(&full) {
             Some(full)
         } else {
@@ -96,10 +94,8 @@ impl Cmd {
         }
     }
 
-    /// Run it, honoring dry-run. `Ok(true)` means it ran and succeeded;
-    /// `Ok(false)` means it ran and failed. Only a failure to *spawn* is an
-    /// `Err`. A non-zero exit is data, not an error, because most of these
-    /// steps are advisory.
+    /// Honor dry-run. Return success as a bool, with `Err` only for spawn failures.
+    /// Non-zero exits are advisory for most callers.
     pub fn run(&self, ctx: &Ctx, desc: &str) -> Result<bool> {
         if ctx.dry_run {
             ui::dry(desc);
@@ -154,9 +150,7 @@ impl Capture {
     }
 }
 
-/// Run as root: already root, or via sudo, or refuse. Containers usually run
-/// as root with no sudo installed, so shelling out to a missing sudo would be
-/// the wrong failure.
+/// Run as root, use sudo, or refuse. Root containers may lack sudo.
 pub fn as_root(ctx: &Ctx, desc: &str, program: &str, args: &[&str]) -> Result<bool> {
     let am_root = unsafe { libc_geteuid() } == 0;
     if am_root {
@@ -184,8 +178,7 @@ unsafe fn libc_geteuid() -> u32 {
     geteuid()
 }
 
-/// Best-effort system package install, used only to get zsh and git present.
-/// The OpenSSH client's package name, which differs by package manager.
+/// The package manager's name for the OpenSSH client.
 pub fn ssh_client_package() -> &'static str {
     if has("dnf") {
         "openssh-clients"
@@ -197,8 +190,7 @@ pub fn ssh_client_package() -> &'static str {
 }
 
 pub fn sys_install(ctx: &Ctx, pkgs: &[&str]) -> Result<bool> {
-    // Guarded here rather than at the call site: this escalates to root and
-    // mutates the machine, so it must not depend on a caller remembering.
+    // Guard root-level changes here so callers cannot omit the check.
     if !ctx.dry_run && !allow_global_changes() {
         return Ok(false);
     }
@@ -233,18 +225,10 @@ pub fn sys_install(ctx: &Ctx, pkgs: &[&str]) -> Result<bool> {
     }
 }
 
-/// Whether machine-global changes are allowed.
-///
-/// $HOME differing from the account's real home means a test harness with a
-/// sandboxed $HOME. File operations follow $HOME and stay contained; package
-/// installs, `defaults write`, `chsh` and the toolchain installers do not, and
-/// would escape the sandbox onto the real machine.
-///
-/// Fails CLOSED. An earlier version returned "not sandboxed" from every error
-/// path, so a machine where the home lookup failed (a directory-services
-/// bound Mac, a container without `id`) silently ran with no guard at all.
-/// For a safety check, "I could not tell" must mean "do not".
-/// DOTFILES_ALLOW_SANDBOXED_HOME=1 is the escape hatch.
+/// Compare $HOME with the account home to detect sandboxed runs.
+/// Package installs, defaults, chsh and toolchain installers can escape $HOME.
+/// Failed lookups must block them; earlier error paths silently allowed them.
+/// Only DOTFILES_ALLOW_SANDBOXED_HOME=1 overrides the guard.
 pub fn home_is_sandboxed() -> Sandbox {
     if override_set(std::env::var_os("DOTFILES_ALLOW_SANDBOXED_HOME")) {
         return Sandbox::No;
@@ -255,8 +239,7 @@ pub fn home_is_sandboxed() -> Sandbox {
     let Some(real_home) = real_home_dir() else {
         return Sandbox::Unknown("could not read this account's home directory");
     };
-    // Compare resolved paths: a symlinked or trailing-slash $HOME is the same
-    // home, and should not read as a sandbox.
+    // Symlinks and trailing slashes can still name the real home.
     let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
     if canon(&env_home) == canon(&real_home) {
         Sandbox::No
@@ -294,9 +277,7 @@ fn real_home_dir() -> Option<std::path::PathBuf> {
         }
     }
 
-    // macOS has no getent. Query /Search rather than the local node `.`, so a
-    // machine bound to AD/LDAP (where the user record is not local) still
-    // resolves instead of silently disabling the guard.
+    // On macOS, /Search also finds AD/LDAP users absent from the local node.
     for node in ["/Search", "."] {
         let Ok(o) = Command::new("dscl")
             .args([node, "-read", &format!("/Users/{user}"), "NFSHomeDirectory"])
@@ -349,10 +330,7 @@ fn blocked_because(s: Sandbox) -> Option<String> {
     }
 }
 
-/// Guard for anything that changes machine-global state.
-///
-/// Reports at most once per run; it is consulted from a dozen call sites and
-/// repeating the same line a dozen times is noise.
+/// Guard machine-global changes. Report once per run, across all callers.
 pub fn allow_global_changes() -> bool {
     use std::sync::atomic::{AtomicBool, Ordering};
     static REPORTED: AtomicBool = AtomicBool::new(false);
@@ -404,14 +382,9 @@ pub fn login_shell_of_record() -> Option<String> {
     None
 }
 
-/// Download a script, then run it. Never `curl … | sh`.
-///
-/// A pipeline's exit status is the shell's, so a failed download exits 0 and
-/// the caller's error branch never fires. `set -o pipefail` would fix it on
-/// bash but /bin/sh is dash on many Linuxes. Downloading first also means a
-/// truncated transfer cannot execute half a script.
-///
-/// `envs` is how an installer is told not to edit shell rc files.
+/// Download before running to reject failed or truncated transfers.
+/// Pipelines hide curl failures, and /bin/sh may lack pipefail.
+/// Use `envs` to stop installers from editing shell rc files.
 pub fn run_remote_script(
     ctx: &Ctx,
     desc: &str,
@@ -469,8 +442,7 @@ mod tests {
 
     #[test]
     fn real_home_resolves_on_this_machine() {
-        // If this fails the guard would previously have silently switched off;
-        // now it fails closed instead, but either way it is worth knowing.
+        // A failed home lookup blocks global changes.
         assert!(
             real_home_dir().is_some(),
             "could not read this account's home directory"

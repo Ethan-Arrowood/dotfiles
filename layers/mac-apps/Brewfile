@@ -1,14 +1,11 @@
-# The apps a machine is useless without. Anything you would install on a
-# throwaway VM belongs here; everything else belongs in mac-apps-extra.
+# Essential apps, including for VMs. Optional apps belong in mac-apps-extra.
 
 cask google-chrome
 cask visual-studio-code
 cask claude                     # Claude desktop app
 cask ghostty                    # terminal; config lives in config/ghostty/
 
-# Dashlane ships no macOS app any more: it is a browser extension plus this
-# CLI. Note: the formula depends on yarn, which pulls Homebrew's node. That is
-# a second node alongside fnm's, but fnm prepends its shims to PATH so your
-# shell keeps using fnm's version; brew's is only used by the dcli wrapper.
+# Use the Dashlane browser extension and CLI. The formula pulls Homebrew Node
+# through yarn for dcli; fnm takes precedence in interactive shells.
 tap dashlane/tap
 formula dashlane/tap/dashlane-cli

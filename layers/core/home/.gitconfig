@@ -1,5 +1,4 @@
-# Tracked in the dotfiles repo. Anything machine-specific (signing key,
-# work identities) is layered on through the includes at the bottom.
+# Machine-specific settings use the includes below.
 
 [user]
 	name = Ethan Arrowood
@@ -32,8 +31,7 @@
 [merge]
 	conflictStyle = zdiff3
 
-# Remember conflict resolutions and replay them. Pays for itself on any
-# long-lived branch or repeated cherry-pick.
+# Reuse conflict resolutions across rebases and cherry-picks.
 [rerere]
 	enabled = true
 	autoUpdate = true
@@ -62,10 +60,7 @@
 	pushf = push --force-with-lease
 	root = rev-parse --show-toplevel
 
-# pushInsteadOf, not insteadOf: rewriting fetches too means a clone that was
-# deliberately made over https (install.sh does exactly that, before any ssh
-# key exists) can no longer be pulled. Pushes still go over ssh, which is the
-# part that needs a key.
+# Keep HTTPS fetches usable before SSH keys exist. Only pushes need SSH.
 [url "git@github.com:"]
 	pushInsteadOf = https://github.com/
 
@@ -84,10 +79,9 @@
 [include]
 	path = ~/.gitconfig.local
 
-# ethan@arrowood.dev is the identity everywhere: no per-directory override.
-# If some repo ever needs a different address (a CLA, say), the pattern is:
+# Use ethan@arrowood.dev everywhere. For a repo requiring another address:
 #
 #   [includeIf "gitdir:~/dev/somewhere/"]
 #   	path = ~/.config/dotfiles/gitconfig.somewhere
 #
-# with that file containing [user] email = ...
+# Put [user] email = ... in that file.

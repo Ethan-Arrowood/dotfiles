@@ -1,83 +1,108 @@
 # How this works
 
-For auditing the code, not using it. [README.md](README.md) covers usage.
-
-## The whole thing in one paragraph
-
-A layer is a name plus a directory of files. [`layer.rs`](src/layer.rs) holds the list of layers; a profile is a text file naming some of them. `install` resolves profile + `--with` − `--without` into an ordered list, runs each layer's install function and two generic steps for every layer, then sets the Dock and writes the shell init.
+An audit guide. [README.md](README.md) covers usage.
 
 ## The install loop
 
-[`main.rs` `install()`](src/main.rs) is short and worth reading first:
+[`layer.rs`](src/layer.rs) defines layers and their install order. Profiles name layers. [`main.rs`](src/main.rs) resolves the profile, `--with` and `--without`, then runs:
 
 ```rust
-let mut claimed = skills::Claimed::new();     // skill names, across layers
+let mut claimed = skills::Claimed::new();
 for l in &selected {
-    (l.install)(ctx, l)?;                     // layer-specific: brew, toolchains…
-    link::link_home_dir(ctx, &l.path(ctx))?;   // home/*       → $HOME
-    skills::install(ctx, l, &mut claimed)?;    // Skillfile    → skills, rules, hooks
+    (l.install)(ctx, l)?;
+    link::link_home_dir(ctx, &l.path(ctx))?;
+    skills::install(ctx, l, &mut claimed)?;
 }
-dock::apply(ctx, &selected)?;                // every Dockfile → the Dock
-shellinit::write(ctx, &profile, &selected)?; // → ~/.config/dotfiles/init.sh
+dock::apply(ctx, &selected)?;
+shellinit::write(ctx, &profile, &selected)?;
 ```
 
-Everything except `(l.install)` is why a layer usually needs **no code**: it opts in by shipping files. Only layers doing something unusual (installing Homebrew, writing macOS defaults) have an install function with real content.
+[`Ctx`](src/ctx.rs) carries the repo root, `$HOME`, backup and state directories, and `dry_run`, `assume_yes`, `update` and `signing`. Only `install` changes those flags. Other commands use the defaults.
 
-`Ctx` ([`ctx.rs`](src/ctx.rs)) is passed everywhere and holds: repo root, real `$HOME`, where backups go, and the install-only flags `dry_run`, `assume_yes`, `update` and `signing`. If you want to know whether something can write, look for `ctx.dry_run`. Only `install` sets those flags. Every other command takes the defaults.
+[`find_root`](src/ctx.rs) requires a `layers/` directory. It checks `$DOTFILES_ROOT`, paths relative to the binary, the current directory, then the root recorded in `~/.config/dotfiles/init.sh`. [`install.sh`](install.sh) exports `DOTFILES_ROOT` before invoking the binary.
 
-Finding the repo ([`find_root`](src/ctx.rs)) looks for a directory containing `layers/`; the git checkout is incidental. In order: `$DOTFILES_ROOT`, then relative to the binary, then the cwd, then the root recorded in the generated `~/.config/dotfiles/init.sh`. `install.sh` exports the variable before handing over, so a first run never needs the fallbacks.
+## Layer assets
+
+Layers opt in by shipping files. `home/` and `Skillfile` processing runs for every layer. Layer install functions handle packages, defaults and other setup.
+
+| Asset | Handling |
+| --- | --- |
+| `home/*` | Link each entry into `$HOME` |
+| `shell/*.sh`, `zsh/*.zsh` | Sort by filename within each layer; generate shell init |
+| `ssh/*.conf` | Core links fragments into `~/.ssh/config.d/` |
+| `Brewfile` | [`brew.rs`](src/brew.rs): `formula <name>`, `cask <name>`, `tap <name>`, one per line with `#` comments. Taps run first. Report malformed lines with line numbers; warn and continue on failed casks |
+| `Skillfile` | [`skills.rs`](src/skills.rs): [syntax](README.md#skills). Find `SKILL.md` at depths 1 and 2; stop descending inside a skill. Track claimed names across layers |
+| `Defaultsfile` | [`mac_base.rs`](src/layers/mac_base.rs): `domain key type value`. Report malformed lines with line numbers. Write only changed keys |
+| `Dockfile` | [`dock.rs`](src/dock.rs): one path per line, optionally followed by `dockutil` flags. Combine in layer order, skip absent paths, apply after apps install |
+
+The Dock stays unchanged when its paths match and its flags match `~/.config/dotfiles/dock.applied`. The plist's numeric settings do not map directly to `dockutil` flags, so the tool records the last successful specification.
+
+Helpers: [`ui::{head,step,ok,skip,warn,detail}`](src/ui.rs), [`link::{link_file,link_home_dir,write_file}`](src/link.rs), [`brew::bundle`](src/brew.rs), [`sys::{has,which,is_macos,is_container,allow_global_changes}`](src/sys.rs).
 
 ## Everything that touches $HOME
 
-These places link into `$HOME`, all through [`link::link_file`](src/link.rs):
+Links through [`link::link_file`](src/link.rs):
 
-| What | Where | Code |
+| Source | Destination | Code |
 | --- | --- | --- |
-| `home/*` → `$HOME/*` | `.zshrc`, `.gitconfig`, … | [`link.rs`](src/link.rs) |
-| `ssh/*.conf` → `~/.ssh/config.d/` | plus one `Include` line prepended to `~/.ssh/config` | [`core.rs`](src/layers/core.rs) |
-| `rules/*.md`, `rules/lang/` → `~/.claude/rules/` | from a Skillfile `rules` repo | [`claude.rs`](src/claude.rs) |
-| `rules/orgs/<org>.md` → `~/dev/<org>/AGENTS.md` | only where `~/dev/<org>/` exists | [`claude.rs`](src/claude.rs) |
-| Skill dirs → `~/.claude/skills/` | symlinks into the cloned repo | [`skills.rs`](src/skills.rs) |
-| Ghostty config, `~/.local/bin/code` | mac-apps | [`mac_apps.rs`](src/layers/mac_apps.rs) |
-| `~/.local/bin/dispatch` | work-harper | [`work_harper.rs`](src/layers/work_harper.rs) |
+| `home/*` | `$HOME/*`: `.zshrc`, `.zshenv`, `.zprofile`, `.gitconfig`, `.gitignore_global`, `.npmrc` | [`link.rs`](src/link.rs) |
+| `ssh/*.conf` | `~/.ssh/config.d/` | [`core.rs`](src/layers/core.rs) |
+| `rules/*.md` and subdirectories except `orgs/` | `~/.claude/rules/` | [`claude.rs`](src/claude.rs) |
+| `rules/orgs/<org>.md` | `$DOTFILES_SRC_DIR/<org>/AGENTS.md`, default `~/dev/<org>/AGENTS.md`, where the org directory exists | [`claude.rs`](src/claude.rs) |
+| Skill directories | `~/.claude/skills/` | [`skills.rs`](src/skills.rs) |
+| Ghostty config, VS Code CLI | `~/.config/ghostty/config`, `~/.local/bin/code` | [`mac_apps.rs`](src/layers/mac_apps.rs) |
+| dispatch client | `~/.local/bin/dispatch` | [`work_harper.rs`](src/layers/work_harper.rs) |
 
-**Generated** files, written by [`link::write_file`](src/link.rs) only when their content changes. They live in `~/.config/dotfiles/` and belong to this tool: `init.sh` ([`shellinit.rs`](src/shellinit.rs)), `gitconfig.signing` ([`signing.rs`](src/signing.rs)), `gitconfig.tools` ([`mac_base.rs`](src/layers/mac_base.rs)) and `dock.applied` ([`dock.rs`](src/dock.rs)).
+Generated state lives in `~/.config/dotfiles/`, regardless of `XDG_CONFIG_HOME`. Git includes use literal paths and cannot expand that variable.
 
-Files changed in place, each backed up or left alone when in doubt:
+| File | Writer |
+| --- | --- |
+| `init.sh` | [`shellinit.rs`](src/shellinit.rs), through `link::write_file` |
+| `gitconfig.signing` | [`signing.rs`](src/signing.rs), through `link::write_file`; removed when signing is disabled or the public key is absent or invalid |
+| `gitconfig.tools` | [`mac_base.rs`](src/layers/mac_base.rs), through `link::write_file`; removed when delta is absent |
+| `dock.applied` | [`dock.rs`](src/dock.rs), written directly after a successful Dock update |
 
-- `~/.ssh/config` ([`core.rs`](src/layers/core.rs)): the `Include` line is prepended, with the original copied to the backup directory first. A broken symlink there is replaced.
-- `~/.ssh/allowed_signers` ([`signing.rs`](src/signing.rs)): this machine's key is appended. A file it can't read is left alone.
-- `~/dev/<org>/CLAUDE.md` ([`claude.rs`](src/claude.rs)): moved to the backup directory only when it is exactly the one-line org import older versions wrote, and only when the org's `AGENTS.md` link replaces it.
-- `~/.claude/settings.json` and `~/.codex/hooks.json` ([`hooks.rs`](src/hooks.rs)): merged, not replaced. `edit_json` parses the file, adds only what is missing, backs up the original once per run, and writes atomically. A file it can't parse, or a value of the wrong shape, is left untouched with a warning.
+`link::write_file` skips unchanged content and replaces symlinks instead of writing through them. It does not back up generated files.
 
-Also: Skillfile repos are cloned under `~/dev` (never pulled), `ssh-keygen` creates `~/.ssh/id_ed25519` when you ask it to, and a SessionStart `hook` entry runs its script once ([`hooks.rs`](src/hooks.rs)), with the agent's config directory and `AGENTIC_DEV_DIR` set to match this tool's. agentic's scripts write only under `$HOME` and `~/dev`.
+Other changes:
+
+- `~/.ssh/config`: [`core.rs`](src/layers/core.rs) prepends `Include ~/.ssh/config.d/*` after copying the original to the backup directory. It replaces broken symlinks and leaves unreadable files alone.
+- `~/.ssh/allowed_signers`: [`signing.rs`](src/signing.rs) appends a missing key by rewriting the file, without a backup. It leaves unreadable files alone.
+- `<src_root>/<org>/CLAUDE.md`: [`claude.rs`](src/claude.rs) backs up an old one-line org import only when an `AGENTS.md` link replaces it. Other content stays.
+- `~/.claude/settings.json`, `~/.codex/hooks.json`: [`hooks.rs`](src/hooks.rs) merges missing entries, preserves key order, backs up once per run and writes atomically. Parse errors or wrong value shapes warn without changing the file. Writes preserve permissions and follow existing symlinks to their targets.
+- Repos: [`skills.rs`](src/skills.rs) clones Skillfile repos under `$DOTFILES_SRC_DIR` (default `~/dev`). [`work_harper.rs`](src/layers/work_harper.rs) also clones dispatch there. Neither pulls existing checkouts.
+- SSH keys: [`core.rs`](src/layers/core.rs) invokes `ssh-keygen` for `$DOTFILES_SSH_KEY` (default `~/.ssh/id_ed25519`) and its `.pub` file. It skips generation in containers or without a terminal for the passphrase. [`signing.rs`](src/signing.rs) reads only the public half.
+- Hooks: [`hooks.rs`](src/hooks.rs) runs SessionStart scripts once per install or relink. It creates their destination directories and sets the agent config variable and `AGENTIC_DEV_DIR`. agentic manages `~/.codex/AGENTS.md`, `~/.agents/skills/` and its Claude rule and skill links. See [agentic](https://github.com/Ethan-Arrowood/agentic) for script behavior.
+- External installers: [`mac_langs.rs`](src/layers/mac_langs.rs) runs fnm, rustup and uv; [`mac_apps.rs`](src/layers/mac_apps.rs) runs the Claude installer; [`work_harper.rs`](src/layers/work_harper.rs) registers the dispatch marketplace and plugin. These tools manage their own files.
+- Shell startup creates zsh [history](layers/core/zsh/00-options.zsh) and [completion caches](layers/core/zsh/10-completion.zsh) under the configured XDG directories.
+- Bootstrap: [`install.sh`](install.sh) clones or updates `$DOTFILES_ROOT` (default `~/dev/dotfiles`) and writes the binary to `$DOTFILES_BIN_DIR` (default `~/.local/bin`).
 
 ### link_file is the one to read closely
 
-[`link.rs`](src/link.rs) replaces files the user may care about, so it is deliberately boring:
+[`link.rs`](src/link.rs) preserves user files:
 
-- Destination already links to the right place → skip.
-- Destination is a **real directory** → leave it alone and warn. (Your hand-written `~/.claude/skills/learned` survives a Skillfile naming it.)
-- Anything else → move to `~/.dotfiles-backup/<timestamp>/<path relative to $HOME>`, then symlink. The relative path matters: keyed on basename alone, `~/.ssh/config` and `~/.config/ghostty/config` collided and `rename` replaces silently.
-- An existing backup entry is **refused**, never overwritten.
+- Correct link: skip.
+- Real directory: warn and leave it alone, including local skill directories.
+- Other file or link: move to `~/.dotfiles-backup/<timestamp>/<path relative to $HOME>`, then symlink.
+- Existing backup entry: refuse to overwrite it.
 
-Seven tests in that file cover exactly these cases, against a throwaway `$HOME`.
+Relative backup paths prevent same-basename collisions such as `~/.ssh/config` and `~/.config/ghostty/config`. `rename` would otherwise replace the first backup silently.
 
 ## The three dangerous operations
 
-Everything that escapes `$HOME` is behind [`sys::allow_global_changes()`](src/sys.rs):
+[`sys::allow_global_changes()`](src/sys.rs) guards CLI operations that can escape `$HOME`:
 
-1. **Package installs**: `brew` ([`brew.rs`](src/brew.rs)) and `sys_install`, which escalates to root. Guarded *inside* `sys_install` so no caller can forget.
-2. **macOS system state**: `defaults write` from [`Defaultsfile`](layers/mac-base/Defaultsfile), `scutil --set`, opening the Xcode CLT installer ([`mac_base.rs`](src/layers/mac_base.rs)), the Dock from each layer's `Dockfile` ([`dock.rs`](src/dock.rs)), and Chrome policies ([`mac_apps.rs`](src/layers/mac_apps.rs)).
-3. **Account state**: `chsh` and `ssh-add --apple-use-keychain` ([`core.rs`](src/layers/core.rs)), and key uploads in `dotfiles github` ([`github.rs`](src/github.rs)). `ssh-add` looks `$HOME`-scoped but writes the real login Keychain.
+1. Packages and external installers: [`brew.rs`](src/brew.rs), [`mac_langs.rs`](src/layers/mac_langs.rs), [`mac_apps.rs`](src/layers/mac_apps.rs), and `sys_install`. The latter guards internally because it can escalate to root.
+2. macOS state: defaults, computer names and Xcode CLT installation in [`mac_base.rs`](src/layers/mac_base.rs), the [Dock](src/dock.rs), and [Chrome policies](src/layers/mac_apps.rs).
+3. Account and agent state: `chsh` and `ssh-add --apple-use-keychain` in [`core.rs`](src/layers/core.rs), [GitHub uploads](src/github.rs), and the [dispatch plugin](src/layers/work_harper.rs). `ssh-add` can write the real login Keychain.
 
-The guard compares `$HOME` against the account's home from `dscl`/`getent`. A mismatch means a test harness, so global changes are skipped. **It fails closed**: if it cannot determine the real home, it blocks rather than allows. `DOTFILES_ALLOW_SANDBOXED_HOME=1` overrides it, and no other value does. CI asserts it fires.
+The guard compares canonical `$HOME` and account-home paths from `getent` or `dscl`. A mismatch or failed lookup blocks global changes. Only `DOTFILES_ALLOW_SANDBOXED_HOME=1` overrides it. CI checks that it fires.
 
-This exists because a sandboxed-`$HOME` test run once installed packages and rewrote system preferences for real.
+A sandboxed test once installed packages and changed real system preferences. This guard prevents that in the CLI; the separate bootstrap script does not call it.
 
 ## Shell config
 
-`~/.zshrc` is a three-line loader. The real file is `~/.config/dotfiles/init.sh`, generated by [`shellinit.rs`](src/shellinit.rs), which enumerates each enabled layer's fragments at *install* time and emits explicit `source` lines:
+[`shellinit.rs`](src/shellinit.rs) generates explicit source lines for [`~/.zshrc`](layers/core/home/.zshrc):
 
 ```sh
 . "$DOTFILES_ROOT"/'layers/core/shell/10-env.sh'
@@ -86,43 +111,41 @@ if [ -n "${ZSH_VERSION:-}" ]; then
 fi
 ```
 
-Generated rather than globbed at runtime because zsh and bash disagree in ways that bite silently: zsh doesn't word-split unquoted variables, and it aborts on an unmatched glob. The obvious guard for that, `setopt local_options null_glob`, reverts every `setopt` a sourced file performs. Three real bugs lived there. The trade-off: a **new** fragment file needs `dotfiles install` re-run; edits to existing ones are live.
+Runtime globbing caused three zsh bugs: no word splitting of unquoted variables, errors on unmatched globs, and `setopt local_options null_glob` reverting sourced options. See [fragment edits](README.md#how-it-works).
+
+## Agent config
+
+[`claude.rs`](src/claude.rs) installs global rules separately from `CLAUDE.md`, avoiding merges into a file the user edits. Skillfiles require an explicit `rules` entry, so a skills repo cannot silently opt into global instructions.
+
+Org rules use parent-directory `AGENTS.md` links because user-level `paths:` patterns cannot match GitHub orgs. Existing files stay unless they are dangling links or this tool's old one-line imports.
+
+When org links exist, the tool sets `pluginConfigs."cc-plugin-agents-md@builtin".options.instructionFiles` to `claude-md-and-agents-md`, unless already set. This lets Claude Code load org rules beside a repo's `CLAUDE.md`.
 
 ## Signing
 
-[`signing.rs`](src/signing.rs). One method, the machine's own ssh key, and no mode to choose: key present → sign, else don't, with `--no-signing` to opt out. Writes a generated include so `~/.gitconfig` stays static and a machine with no key gets a working git.
-
-No private key material is handled anywhere in this codebase.
-
-## Reading order
-
-1. [`layer.rs`](src/layer.rs): what a layer is. The `registry()` list is the single source of truth for which layers exist
-2. [`main.rs` `install()`](src/main.rs): the loop
-3. [`link.rs`](src/link.rs): replaces files, with backups
-4. [`sys.rs` `allow_global_changes`](src/sys.rs): the guard
-5. Anything else, on demand
+[`signing.rs`](src/signing.rs) validates the public key and generates a Git include. [Setup and forwarded-agent signing](README.md#commit-signing) are in the user guide. The Rust code never reads private key material.
 
 ## What the tests assert
 
-`cargo test`, all against throwaway directories, never the real `$HOME`.
+`cargo test` uses temporary directories for file writes.
 
 | Area | Asserts |
 | --- | --- |
-| [`link.rs`](src/link.rs) | backup content, path collisions, real directories untouched, dangling symlinks, refusing to overwrite a backup |
-| [`sys.rs`](src/sys.rs) | home resolves, trailing-slash `$HOME` is not a sandbox, only a confirmed real home allows global changes, only the override value `1` counts |
-| [`shellinit.rs`](src/shellinit.rs) | zsh fragments are guarded, no runtime globbing, repo paths, fragment names and the profile quoted |
-| [`brew.rs`](src/brew.rs) | trailing comments aren't package names, extra words are reported, a cask's apps, `.pkg` receipts and commands are read so a copy installed without brew is skipped, `PATH` is imported from `brew shellenv` |
-| [`skills.rs`](src/skills.rs) | `#` parses as a separator not a comment, discovery finds both repo layouts, `hook` entries name a known agent, `rules` entries parse, extra words and nested repo paths are reported |
-| [`hooks.rs`](src/hooks.rs) | adding a hook keeps existing hooks and key order and is idempotent, a `~/` spelling of the same hook counts, Codex's SessionStart hook gets the `startup` matcher |
-| [`claude.rs`](src/claude.rs) | org rules link as `AGENTS.md` only where the org directory exists, old one-line imports are moved out, other files stay, a plugin option you set is never overridden |
-| [`layer.rs`](src/layer.rs) | unique names, every layer has its directory, `core` can't be dropped, the README example matches the struct |
-| [`mac_base.rs`](src/layers/mac_base.rs) | the shipped `Defaultsfile` parses cleanly, malformed and mistyped lines are reported |
-| [`dock.rs`](src/dock.rs) | paths with spaces, flags after the path, paths read back out of the Dock's plist |
-| [`signing.rs`](src/signing.rs) | `.pub` is appended, not substituted for an existing extension; the key path is quoted for git config |
-| [`github.rs`](src/github.rs) | registered keys are matched by type |
-| [`ctx.rs`](src/ctx.rs) | the recorded repo root survives shell quoting |
-| [`tmpdir.rs`](src/tmpdir.rs) | the temp dir is 0700, exclusive, and self-cleaning |
+| [`link.rs`](src/link.rs) | Idempotence, backup content and collisions, real directories preserved, dangling links, backup overwrite refusal |
+| [`sys.rs`](src/sys.rs) | Account home and shell resolve, trailing-slash `$HOME`, unknown home blocks changes, only override `1` counts |
+| [`shellinit.rs`](src/shellinit.rs) | zsh guards, no runtime globbing, quoted roots, fragment names and profiles |
+| [`brew.rs`](src/brew.rs) | Comments, malformed lines, namespaced formulas, cask apps/receipts/commands, `brew shellenv` imports `PATH` |
+| [`skills.rs`](src/skills.rs) | Entry parsing, `#` separators, malformed lines, known hook agents, lowercase owners, discovery depth and exclusions |
+| [`hooks.rs`](src/hooks.rs) | Existing hooks and key order preserved, idempotence, aliases, malformed shapes, Codex `startup` matcher |
+| [`claude.rs`](src/claude.rs) | Org links only in existing directories, old imports backed up, user files and plugin choices preserved |
+| [`layer.rs`](src/layer.rs) | Unique names, asset directories, mandatory `core`, README struct example |
+| [`mac_base.rs`](src/layers/mac_base.rs) | Shipped Defaultsfile, comments, malformed lines |
+| [`dock.rs`](src/dock.rs) | Paths with spaces, flags, plist paths, stray percent signs |
+| [`signing.rs`](src/signing.rs) | `.pub` appended, Git config quoting |
+| [`github.rs`](src/github.rs) | Key matches include type |
+| [`ctx.rs`](src/ctx.rs) | Recorded root survives shell quoting |
+| [`tmpdir.rs`](src/tmpdir.rs) | 0700 mode, exclusive creation, cleanup |
 
-CI also runs real installs of the core profile in a bare container ([`ci.yml`](.github/workflows/ci.yml)): packages, ssh config, agentic rules and hook, both shells, a second run changing nothing, the guard, and a signed commit.
+[CI](.github/workflows/ci.yml) also installs core in a bare container. It checks packages, SSH config, agentic rules and hook, both shells, an unchanged second run, the guard and signed-commit verification.
 
-Known gaps: the macOS layers have no automated install test, and the GitHub upload path has never executed.
+Known gaps: no automated macOS install test or GitHub upload test. Check macOS layers with `dotfiles install -n`.

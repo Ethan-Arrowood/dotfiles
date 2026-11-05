@@ -1,9 +1,5 @@
-//! Agent hooks, from `hook` Skillfile entries.
-//!
-//! Claude Code and Codex read hooks from JSON files with the same shape:
-//! `hooks.<Event>[{ matcher?, hooks: [{ type, command, timeout? }] }]`. Each
-//! file is shared with the agent and the user, so it is merged, never linked
-//! or replaced.
+//! Merge `hook` Skillfile entries into agent JSON files shared with the user.
+//! Both agents use `hooks.<Event>[{ matcher?, hooks: [{ type, command, timeout? }] }]`.
 
 use crate::ctx::Ctx;
 use crate::sys::Cmd;
@@ -42,8 +38,7 @@ impl Agent {
         }
     }
 
-    /// The variable that moves the agent's config directory. Set for a hook
-    /// run at install, so it writes where this tool does.
+    /// Set the agent config directory for install-time hooks to match this tool.
     fn config_env(self) -> &'static str {
         match self {
             Agent::Claude => "CLAUDE_CONFIG_DIR",
@@ -72,10 +67,8 @@ impl Agent {
     }
 }
 
-/// Add `command` under `hooks.<event>` unless a hook already runs it or one
-/// of `aliases`, other spellings of the same command. Returns whether
-/// anything changed. Everything else in the file is kept as
-/// is, in its original key order.
+/// Add `command` unless it or an alias exists. Return whether it changed.
+/// Preserve other entries and their key order.
 fn add_hook(
     settings: &mut Value,
     event: &str,
@@ -120,9 +113,7 @@ fn add_hook(
     Ok(true)
 }
 
-/// Read a JSON config file, let `edit` change it, and write it back if it
-/// reports a change. The original is backed up before it is rewritten, and a
-/// file that does not parse is left untouched.
+/// Apply `edit`, back up and write only if changed. Leave unparseable files alone.
 pub(crate) fn edit_json(
     ctx: &Ctx,
     path: &Path,
@@ -144,8 +135,7 @@ pub(crate) fn edit_json(
         Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
     };
 
-    // A value of the wrong shape (`hooks` not an object, say) is the same
-    // case as a file that doesn't parse: warn and leave it, don't abort.
+    // Warn on invalid shapes without changing the file or aborting installation.
     match edit(&mut settings) {
         Ok(true) => {}
         Ok(false) => return Ok(()),
@@ -161,9 +151,7 @@ pub(crate) fn edit_json(
         ui::dry(&format!("{what} in {}", ctx.pretty(path)));
         return Ok(());
     }
-    // Back up the original once per run. A run can edit a file more than
-    // once, and a second copy would replace the original with the half-edited
-    // file from the first edit.
+    // Back up once per run so later edits cannot replace the original backup.
     let backup = link::backup_path(ctx, path);
     if path.exists() && !backup.exists() {
         if let Some(parent) = backup.parent() {
@@ -176,9 +164,8 @@ pub(crate) fn edit_json(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    // Write a sibling and rename it over the original, so a running agent
-    // never reads a half-written file. Keep the original's mode (often 0600),
-    // and if the file is a symlink, replace its target, not the link.
+    // Rename a sibling over the target so agents never read partial JSON.
+    // Preserve permissions and write through symlinks.
     let target = if path.is_symlink() {
         std::fs::canonicalize(path).with_context(|| format!("resolving {}", path.display()))?
     } else {
@@ -194,10 +181,8 @@ pub(crate) fn edit_json(
     Ok(())
 }
 
-/// Register `script` as an `event` hook for `agent`. A SessionStart hook also
-/// runs once now, so the first session starts synced. Codex will not run a
-/// new hook until it is trusted, so without this its first sessions would
-/// have no rules.
+/// Register the hook. Run SessionStart once now so the first session has rules,
+/// even before the user trusts a new Codex hook.
 pub fn register(
     ctx: &Ctx,
     agent: Agent,
@@ -236,7 +221,7 @@ pub fn register(
         Ok(added)
     })?;
     if added && agent == Agent::Codex && !ctx.dry_run {
-        ui::detail("Codex runs a new hook only once you trust it: run /hooks in Codex");
+        ui::detail("trust the new hook with /hooks in Codex");
     }
 
     if event == "SessionStart" {
@@ -253,8 +238,7 @@ fn run_once(ctx: &Ctx, agent: Agent, script: &Path) -> Result<()> {
     for d in agent.install_dirs(ctx) {
         std::fs::create_dir_all(&d).with_context(|| format!("creating {}", d.display()))?;
     }
-    // agentic's hooks read AGENTIC_DEV_DIR for where org directories live.
-    // Point it at the same place the Skillfile entries use.
+    // Match hook org directories to Skillfile checkout locations.
     let out = Cmd::new(script.to_string_lossy())
         .env(agent.config_env(), agent.config_dir(ctx).to_string_lossy())
         .env(

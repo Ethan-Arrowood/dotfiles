@@ -1,5 +1,4 @@
-# Harper-specific. LastPass is the work password manager; Dashlane (personal,
-# always) is handled in mac-apps and is a browser extension, not an app.
+# LastPass for work. mac-apps handles personal Dashlane.
 
 cask lastpass
 
@@ -8,6 +7,5 @@ cask codex
 cask antigravity-cli            # installs as `agy`
 cask gcloud-cli
 
-# The standalone app (not the App Store build). Signing in to the work
-# tailnet, and allowing its VPN configuration on first launch, stay manual.
+# Standalone Tailscale app. Allow its VPN configuration and sign in manually.
 cask tailscale-app

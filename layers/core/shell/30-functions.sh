@@ -1,6 +1,6 @@
 # Portable functions.
 
-# Cherry-pick that does the right thing for a merge commit.
+# Use the first parent when cherry-picking a merge commit.
 gcp() {
   if git rev-parse "$1^2" >/dev/null 2>&1; then
     git cherry-pick -m 1 "$1"

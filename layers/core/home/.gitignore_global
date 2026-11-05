@@ -6,8 +6,7 @@ Icon?
 ._*
 
 # Editors
-# `.vscode/*` not `.vscode/`: git does not descend into an ignored directory,
-# so a negation under a directory rule never applies.
+# Ignore contents, not the directory, so negations below can apply.
 .vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json

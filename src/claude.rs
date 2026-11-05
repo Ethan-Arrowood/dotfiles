@@ -1,12 +1,5 @@
-//! Claude Code rules, from `rules` Skillfile entries.
-//!
-//! Rule files, not CLAUDE.md. `~/.claude/rules/*.md` all load every session,
-//! so the repo can own whole topic files while `~/.claude/CLAUDE.md` stays
-//! untracked and machine-specific. That avoids merging markdown sections into
-//! a file the user also edits by hand.
-//!
-//! Note: Claude Code skips a symlinked user-scope rule file in Cowork sessions
-//! on the desktop. Everywhere else it follows the link normally.
+//! Install `rules` Skillfile entries without editing machine-local CLAUDE.md.
+//! Claude Code skips symlinked user-scope rules in desktop Cowork sessions.
 
 use crate::ctx::Ctx;
 use crate::hooks::{self, Agent};
@@ -31,9 +24,8 @@ fn is_md(p: &Path) -> bool {
     p.is_file() && p.extension().is_some_and(|x| x == "md")
 }
 
-/// Link a repo's `rules/` into `~/.claude/rules/`: every `*.md`, and every
-/// subdirectory except `orgs/`. Subdirectories such as `lang/` hold rules
-/// with `paths:` frontmatter, so they load only for matching files.
+/// Link `rules/*.md` and subdirectories except `orgs/` into `~/.claude/rules/`.
+/// Subdirectories can hold rules with `paths:` frontmatter.
 pub fn link_rules(ctx: &Ctx, src_dir: &Path, src_root: &Path) -> Result<()> {
     if !src_dir.is_dir() {
         ui::warn(&format!("no rules directory at {}", ctx.pretty(src_dir)));
@@ -48,23 +40,16 @@ pub fn link_rules(ctx: &Ctx, src_dir: &Path, src_root: &Path) -> Result<()> {
     }
     link_org_rules(ctx, &src_dir.join(ORGS), src_root)?;
 
-    // A rules directory that did not exist when the session started is not
-    // watched, so the current session will not see it.
+    // Sessions do not watch rules directories created after startup.
     if !ctx.dry_run {
         ui::detail("new or changed rule files load at the start of the next session");
     }
     Ok(())
 }
 
-/// `rules/orgs/<org>.md` -> a symlink at `<src_root>/<org>/AGENTS.md`.
-///
-/// `paths:` frontmatter cannot match by GitHub org, because user-level
-/// patterns are relative to the session's working directory. Claude Code
-/// does load every AGENTS.md above the session, and repos live at
-/// `~/dev/<org>/<repo>`, so an AGENTS.md in the org directory covers them all.
-///
-/// Only where the org directory exists, as agentic's own sync hook does. An
-/// existing AGENTS.md that is not ours is left alone.
+/// Link org rules at `<src_root>/<org>/AGENTS.md` where the org directory exists.
+/// User-level `paths:` patterns cannot match GitHub orgs. Parent AGENTS.md files
+/// cover repos under that org. Preserve existing files that are not our links.
 fn link_org_rules(ctx: &Ctx, orgs_dir: &Path, src_root: &Path) -> Result<()> {
     let rules: Vec<PathBuf> = entries(orgs_dir).into_iter().filter(|p| is_md(p)).collect();
     if rules.is_empty() {
@@ -80,8 +65,7 @@ fn link_org_rules(ctx: &Ctx, orgs_dir: &Path, src_root: &Path) -> Result<()> {
         let ours = std::fs::read_link(&dst).is_ok_and(|t| t == rule);
         let dangling = dst.is_symlink() && !dst.exists();
         if ours || dangling || !dst.exists() {
-            // Only once the AGENTS.md link is (or will be) ours: removing the
-            // old import otherwise leaves the org with no rules at all.
+            // Remove the old import only when AGENTS.md replaces it, or rules would vanish.
             remove_old_import(ctx, &rule, &dir.join("CLAUDE.md"))?;
             link::link_file(ctx, &rule, &dst)?;
             linked = true;
@@ -99,10 +83,8 @@ fn link_org_rules(ctx: &Ctx, orgs_dir: &Path, src_root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Older versions of this tool and of agentic's hook imported org rules from
-/// `<org>/CLAUDE.md`. Next to the AGENTS.md link that file would load the
-/// rules twice, so a CLAUDE.md that is exactly that one import line moves to
-/// the backup directory. Any other CLAUDE.md is the user's and stays.
+/// Back up exact legacy org imports to avoid loading rules twice.
+/// Preserve other CLAUDE.md content.
 fn remove_old_import(ctx: &Ctx, rule: &Path, claude_md: &Path) -> Result<()> {
     if claude_md.is_symlink() {
         return Ok(());
@@ -142,15 +124,13 @@ fn remove_old_import(ctx: &Ctx, rule: &Path, claude_md: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The built-in plugin that loads AGENTS.md, and the option that decides
-/// whether it loads beside CLAUDE.md or only in its absence.
+/// Built-in plugin controlling whether AGENTS.md loads beside CLAUDE.md.
 const AGENTS_MD_PLUGIN: &str = "cc-plugin-agents-md@builtin";
 const INSTRUCTION_FILES: &str = "instructionFiles";
 const BOTH: &str = "claude-md-and-agents-md";
 
-/// Set `pluginConfigs.<plugin>.options.<key>` unless it is already set.
-/// Returns `Err` with the existing value when it is set to something else,
-/// so a deliberate choice is never overridden.
+/// Set `pluginConfigs.<plugin>.options.<key>` only when absent.
+/// Return the existing value as an inner `Err` if it differs.
 fn set_plugin_option(
     settings: &mut Value,
     plugin: &str,
@@ -183,9 +163,7 @@ fn set_plugin_option(
     }
 }
 
-/// By default any CLAUDE.md in or above a repo makes Claude Code skip every
-/// AGENTS.md, the org rules included. Several repos have their own CLAUDE.md,
-/// so once org rules are linked, load both.
+/// Load org AGENTS.md files even when a repo has CLAUDE.md.
 fn load_agents_md_beside_claude_md(ctx: &Ctx) -> Result<()> {
     let what = format!("set {INSTRUCTION_FILES} to {BOTH}");
     hooks::edit_json(
@@ -214,9 +192,7 @@ mod tests {
     use crate::tmpdir::PrivateTempDir;
     use std::fs;
 
-    /// Org rules link as `<org>/AGENTS.md` only where the org directory
-    /// exists, an old one-line CLAUDE.md import in either form is moved out,
-    /// and files that are not ours stay.
+    /// Link org rules, back up legacy imports, and preserve user files.
     #[test]
     fn org_rules_link_as_agents_md_and_replace_old_imports() {
         let dir = PrivateTempDir::new("orgtest").unwrap();

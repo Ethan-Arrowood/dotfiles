@@ -1,9 +1,5 @@
-//! Work layer: Harper's agent CLIs, Tailscale, the dispatch client,
-//! dev-server aliases and the work password manager.
-//!
-//! No git identity override on purpose: ethan@arrowood.dev is the identity
-//! everywhere, including work repos. A domain you own outlives every employer,
-//! and an address you lose control of takes its commit attribution with it.
+//! Harper tools and aliases. Keep ethan@arrowood.dev as the Git identity:
+//! an owned domain preserves attribution after an employer address expires.
 
 use crate::ctx::Ctx;
 use crate::layer::Layer;
@@ -27,8 +23,7 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
     Ok(())
 }
 
-/// Tailscale installs from the Brewfile, but joining the tailnet needs a
-/// browser sign-in (an auth key would be a secret), so only report it.
+/// Report Tailscale status. Joining needs manual sign-in; auth keys are secrets.
 fn tailscale(ctx: &Ctx) {
     let app = std::path::Path::new("/Applications/Tailscale.app");
     let cli = sys::which("tailscale").or_else(|| {
@@ -50,14 +45,13 @@ fn tailscale(ctx: &Ctx) {
     match state.as_deref() {
         Some("Running") => ui::skip("tailscale connected"),
         _ => ui::detail(
-            "Tailscale is not connected: open Tailscale, allow its VPN configuration if asked, and sign in with your work account",
+            "Tailscale disconnected. Open it, allow its VPN configuration if asked, and sign in with your work account",
         ),
     }
 }
 
-/// The dispatch client runs straight out of its repo: clone it, put
-/// `bin/dispatch` on PATH, register the Claude Code plugin. The token is a
-/// secret, so it stays a manual step.
+/// Run dispatch from its checkout and register the Claude plugin.
+/// Leave the secret token setup manual.
 fn dispatch(ctx: &Ctx) -> Result<()> {
     let Some(checkout) = skills::ensure_clone(ctx, "harperFast", "dispatch")? else {
         return Ok(());
@@ -90,8 +84,7 @@ fn claude_plugin(ctx: &Ctx, checkout: &Path) -> Result<()> {
         ui::skip("claude not on PATH: skipping the dispatch plugin");
         return Ok(());
     }
-    // Substring checks on the --json output rather than a JSON dependency;
-    // whitespace is stripped so a formatting change cannot cause a re-add.
+    // Strip JSON whitespace so formatting changes do not trigger duplicate registration.
     let listed = |args: &[&str], needle: &str| -> Result<bool> {
         let out = Cmd::new("claude").args(args.iter().copied()).capture()?;
         let flat: String = out.stdout.split_whitespace().collect();

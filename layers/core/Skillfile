@@ -1,12 +1,5 @@
-# Skills, rules and hooks for any dev machine. Cloned to ~/dev/<owner>/<repo>
-# and symlinked or registered from there, so the checkout is both the
-# installed copy and an editable source tree. Edits are live, no re-sync.
-#
-#   repo  <owner>/<repo>                         every skill in the repo
-#   skill <owner>/<repo>#<skill>                 just that one
-#   rules <owner>/<repo>                         its rules/ -> ~/.claude/rules/
-#   hook  <agent> <owner>/<repo>#<path> <Event> [secs]
-#                                                a hook for claude or codex
+# Skills, rules and hooks link to editable checkouts under ~/dev/<owner>/<repo>.
+# Edits apply without syncing. See README.md for Skillfile syntax.
 
 repo  Ethan-Arrowood/agentic
 rules Ethan-Arrowood/agentic

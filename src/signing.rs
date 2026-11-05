@@ -1,8 +1,5 @@
-//! Commit signing: which key git should use, and the generated include that
-//! configures it.
-//!
-//! Nothing is written into ~/.gitconfig itself. A machine with no key gets a
-//! working git rather than one that fails on every commit.
+//! Configure SSH signing through a generated Git include.
+//! Without a usable public key, leave signing unconfigured so commits still work.
 
 use crate::ctx::Ctx;
 use crate::sys::{self, Cmd};
@@ -38,14 +35,7 @@ pub fn ssh_pub_key(ctx: &Ctx) -> Option<String> {
     Some(format!("{} {}", parts.next()?, parts.next()?))
 }
 
-/// Configure commit signing with this machine's own ssh key.
-///
-/// There is nothing to choose: a machine either has a key or it does not.
-/// `ctx.signing` is false only when the user passed --no-signing.
-///
-/// Nothing is written into ~/.gitconfig: the settings go in a generated
-/// include, so a machine with no key gets a working git rather than one that
-/// fails on every commit.
+/// Configure SSH signing unless --no-signing was passed.
 pub fn configure(ctx: &Ctx) -> Result<()> {
     let out = signing_include(ctx);
 
@@ -59,12 +49,11 @@ pub fn configure(ctx: &Ctx) -> Result<()> {
     if !pub_path.exists() {
         link::remove_if_present(ctx, &out)?;
         ui::warn("no ssh key on this machine: commits will not be signed");
-        ui::detail("create the key above and re-run; it is picked up automatically");
+        ui::detail("create the key above, then re-run");
         return Ok(());
     }
 
-    // Exists but unparseable: git would be told to sign with nothing, failing
-    // every commit, which is what the existence check is meant to prevent.
+    // An unusable key would make every signed commit fail.
     if ssh_pub_key(ctx).is_none() {
         link::remove_if_present(ctx, &out)?;
         ui::error(&format!(
@@ -74,8 +63,7 @@ pub fn configure(ctx: &Ctx) -> Result<()> {
         return Ok(());
     }
 
-    // `<type> <base64>` is all ssh_pub_key checks; ask ssh-keygen whether it
-    // is a real key before telling git to sign every commit with it.
+    // ssh_pub_key checks structure only. Validate the key before enabling signing.
     if sys::has("ssh-keygen")
         && !Cmd::new("ssh-keygen")
             .args(["-l", "-f"])
@@ -110,15 +98,13 @@ pub fn configure(ctx: &Ctx) -> Result<()> {
     Ok(())
 }
 
-/// allowed_signers is what lets `git log --show-signature` verify locally;
-/// without it git can sign but not check its own signatures.
+/// Enable local verification with `git log --show-signature`.
 fn allowed_signers(ctx: &Ctx) -> Result<()> {
     let Some(pubkey) = ssh_pub_key(ctx) else {
         return Ok(());
     };
     let path = ctx.home.join(".ssh/allowed_signers");
-    // Only NotFound means empty. Any other read error would otherwise turn
-    // into "empty" and the rewrite below would drop every existing signer.
+    // Treat only NotFound as empty. Other read errors must not erase existing signers.
     let existing = match std::fs::read_to_string(&path) {
         Ok(t) => t,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),

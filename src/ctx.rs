@@ -1,5 +1,4 @@
-//! Run-wide context: where the repo is, and how destructive we are allowed
-//! to be. Threaded through every layer instead of living in globals.
+//! Shared paths and install flags, passed through layers instead of globals.
 
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
@@ -10,8 +9,7 @@ pub struct Ctx {
     pub home: PathBuf,
     pub dry_run: bool,
     pub assume_yes: bool,
-    /// Refresh already-installed toolchains (rustup update, uv self update).
-    /// Off by default so a plain re-run stays a no-op.
+    /// Refresh installed toolchains only with --update, keeping reruns unchanged.
     pub update: bool,
     /// Configure commit signing. False only when --no-signing was passed.
     pub signing: bool,
@@ -22,8 +20,7 @@ pub struct Ctx {
 }
 
 impl Ctx {
-    /// Everything here is either a location or a safe default. The flags are
-    /// install-only and set by the caller.
+    /// Create paths and default flags. Only `install` overrides the flags.
     pub fn new(root: PathBuf) -> Result<Self> {
         let home = dirs::home_dir().context("cannot determine home directory")?;
         let stamp = std::process::Command::new("date")
@@ -34,11 +31,8 @@ impl Ctx {
             .map(|s| s.trim().to_string())
             .unwrap_or_else(|| "backup".into());
 
-        // Deliberately NOT XDG_CONFIG_HOME-aware. layers/core/home/.gitconfig
-        // has to name these include paths literally, and git does not expand
-        // environment variables in them, so honoring XDG here would silently
-        // stop signing and delta from ever applying on a machine that sets it.
-        // Tests override this field directly.
+        // Git includes in layers/core/home/.gitconfig cannot expand XDG_CONFIG_HOME.
+        // Keep state at their literal paths or signing and delta silently stop working.
         let state_dir = Self::state_dir_for(&home);
 
         Ok(Self {
@@ -53,16 +47,12 @@ impl Ctx {
         })
     }
 
-    /// Locate the repo: an explicit override, else the directory above the
-    /// running binary, else the current directory, whichever first contains
-    /// a `layers/` directory.
+    /// Find `layers/` via DOTFILES_ROOT, the binary, cwd, or recorded shell init.
     pub fn find_root() -> Result<PathBuf> {
         if let Some(explicit) = std::env::var_os("DOTFILES_ROOT") {
             let p = PathBuf::from(explicit);
             if p.join("layers").is_dir() {
-                // Absolute, always: symlink targets are stored verbatim, so a
-                // relative root yields links that resolve against $HOME and
-                // dangle, after the real dotfiles have been displaced.
+                // Relative symlink targets resolve against $HOME and dangle after replacing files.
                 return Ok(std::fs::canonicalize(&p).unwrap_or(p));
             }
             bail!("DOTFILES_ROOT={} has no layers/ directory", p.display());
@@ -82,11 +72,8 @@ impl Ctx {
         if let Ok(cwd) = std::env::current_dir() {
             candidates.push(cwd);
         }
-        // The root recorded by the last install. install.sh exports
-        // DOTFILES_ROOT before handing over, so a first run never needs this;
-        // it is for later invocations from a shell that does not have the
-        // variable set (a bash shell, say, since no bashrc ships here).
-        // Reading what was recorded beats guessing at likely paths.
+        // Later shells may lack DOTFILES_ROOT. Read the last install location instead
+        // of guessing. install.sh sets DOTFILES_ROOT for the first run.
         if let Some(recorded) = recorded_root() {
             candidates.push(recorded);
         }
@@ -121,10 +108,7 @@ impl Ctx {
     }
 }
 
-/// The repo path the last `dotfiles install` recorded, read back out of the
-/// shell init it generated. That file is the single source of truth for where
-/// this machine's checkout is.
-/// Undo `shellinit::sh_quote`: `'it'\\''s'` -> `it's`.
+/// Undo `shellinit::sh_quote`: `'it'\''s'` -> `it's`.
 fn unquote(v: &str) -> String {
     match v.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')) {
         Some(inner) => inner.replace("'\\''", "'"),

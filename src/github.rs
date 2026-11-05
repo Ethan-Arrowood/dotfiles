@@ -1,12 +1,5 @@
-//! One command for the GitHub key dance, so nobody rereads the docs.
-//!
-//! GitHub treats these as two separate uploads, which is the part that is
-//! easy to forget:
-//!
-//! - ssh AUTHENTICATION key (git push): scope `admin:public_key`
-//! - ssh SIGNING key (Verified badge): scope `admin:ssh_signing_key`
-//!
-//! The same ssh key must be uploaded twice, once as each type.
+//! Register the same SSH key as authentication and signing keys.
+//! Authentication needs `admin:public_key`; signing needs `admin:ssh_signing_key`.
 
 use crate::ctx::Ctx;
 use crate::signing;
@@ -58,13 +51,8 @@ fn ensure_scope(ctx: &Ctx, want: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Is this public key already registered, for the given type?
-/// `None` means "cannot tell" (usually a missing scope), which must not be
-/// treated as "absent".
-///
-/// `gh ssh-key list` has no type filter: it lists both kinds, with the type
-/// in the last tab-separated column. Without the signing scope it still
-/// exits 0, lists only authentication keys, and warns on stderr.
+/// Check registration by key type. `None` means unknown, not absent.
+/// Without the signing scope, gh lists auth keys and exits 0 with a stderr warning.
 fn registered(pubkey_body: &str, kind: Option<&str>) -> Option<bool> {
     let out = Cmd::new("gh").args(["ssh-key", "list"]).capture().ok()?;
     if !out.ok {
@@ -85,8 +73,7 @@ fn listed(stdout: &str, pubkey_body: &str, kind: &str) -> bool {
 
 pub fn run(ctx: &Ctx) -> Result<()> {
     ui::head("GitHub key setup");
-    // Uploading keys changes the real GitHub account, which a sandboxed
-    // $HOME with inherited gh credentials would otherwise reach.
+    // Inherited gh credentials can reach the real account even with a sandboxed $HOME.
     if !sys::allow_global_changes() {
         return Ok(());
     }
@@ -185,11 +172,8 @@ fn add_ssh(
     }
 
     let question = match kind {
-        Some("signing") => {
-            "Upload the SAME key again as a SIGNING key? (github treats these separately)"
-                .to_string()
-        }
-        _ => format!("Upload {} as an AUTHENTICATION key?", ctx.pretty(pub_path)),
+        Some("signing") => "Upload the same key as a signing key too?".to_string(),
+        _ => format!("Upload {} as an authentication key?", ctx.pretty(pub_path)),
     };
     if !ui::confirm(&question, ctx.assume_yes) {
         ui::skip("declined");
@@ -242,11 +226,8 @@ fn verify(ctx: &Ctx) {
         ));
     }
 
-    // A real signed commit in a throwaway repo is the only honest check that
-    // signing is wired up end to end.
-    // A predictable path here is worse than it looks: create_dir_all succeeds
-    // through a symlink to a directory, so `git init` + `git commit` could
-    // land a junk commit in a real repository.
+    // Verify signing with a temporary commit. Exclusive directory creation prevents
+    // a planted symlink from directing it into a real repo.
     let Ok(probe) = PrivateTempDir::new("signprobe") else {
         ui::warn("could not create a temporary directory for the signing probe");
         return;

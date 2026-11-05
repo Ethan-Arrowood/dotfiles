@@ -1,8 +1,5 @@
-//! Core layer: make zsh, git and ssh usable anywhere.
-//!
-//! Key material only. This says nothing about GitHub: `gh` is not installed
-//! yet at this point in the layer order, so a note about registration here
-//! would be noise at the wrong stage. Registration is `dotfiles github`.
+//! Set up zsh, git and SSH. Defer GitHub registration to `dotfiles github`: gh
+//! may not be installed yet.
 
 use crate::ctx::Ctx;
 use crate::layer::Layer;
@@ -73,25 +70,22 @@ fn ssh_config(ctx: &Ctx, layer_dir: &Path) -> Result<()> {
         }
     }
 
-    // ssh applies the FIRST value it sees for a keyword, so the Include has to
-    // come before anything already in the file for these settings to win.
+    // SSH uses the first value, so managed settings must precede existing entries.
     let cfg = ssh_dir.join("config");
     const INCLUDE: &str = "Include ~/.ssh/config.d/*";
 
-    // `.ok()` here would map EVERY error to "absent" and then truncate: an
-    // unreadable, EISDIR, or dangling-symlink ~/.ssh/config would be replaced
-    // by a single Include line, with no backup, since the backup only happens
-    // on the Some() arm. Only NotFound means there is nothing there.
+    // Only NotFound means absent. Mapping other errors to None would overwrite
+    // unreadable config without a backup.
     let existing = match std::fs::read_to_string(&cfg) {
         Ok(text) => Some(text),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => {
             ui::error(&format!(
-                "cannot read {}: {e}. Leaving it alone rather than replacing it.",
+                "cannot read {}: {e}. Leaving it unchanged.",
                 ctx.pretty(&cfg)
             ));
             ui::detail(&format!(
-                "the managed fragments are already in {}; add this line yourself:\n  {INCLUDE}",
+                "fragments are in {}; add this line:\n  {INCLUDE}",
                 ctx.pretty(&config_d)
             ));
             return Ok(());
@@ -129,9 +123,7 @@ fn ssh_config(ctx: &Ctx, layer_dir: &Path) -> Result<()> {
             }
             std::fs::create_dir_all(&ctx.backup_dir)?;
             std::fs::write(ctx.backup_dir.join("ssh_config"), &text)?;
-            // If ~/.ssh/config is itself a symlink, fs::write follows it and
-            // edits the target, which may well be a file tracked in this
-            // repo. Replace the link instead.
+            // Replace symlinks so writing cannot modify a tracked config target.
             if std::fs::symlink_metadata(&cfg)
                 .map(|m| m.file_type().is_symlink())
                 .unwrap_or(false)
@@ -173,9 +165,8 @@ fn ssh_key(ctx: &Ctx) -> Result<()> {
         ui::skip("container: using the forwarded agent rather than a local key");
         return Ok(());
     }
-    // -y means "don't ask me yes/no questions"; a passphrase is input, not a
-    // question, so -y is not a reason to skip a key the machine needs. But a
-    // machine with no terminal cannot be asked for one.
+    // -y accepts yes/no prompts but still allows passphrase input.
+    // Key generation needs a terminal for that input.
     if !Path::new("/dev/tty").exists() || std::fs::File::open("/dev/tty").is_err() {
         ui::warn(&format!(
             "no ssh key at {} and no terminal to set a passphrase on:",
@@ -245,15 +236,13 @@ fn login_shell(ctx: &Ctx) -> Result<()> {
     let Some(zsh) = sys::which("zsh") else {
         return Ok(());
     };
-    // chsh rewrites the real account's login shell in the password database,
-    // which no sandboxed $HOME contains. -y suppresses the confirm, so without
-    // this a test run would change the user's shell for real.
+    // chsh changes the real account, outside $HOME. With -y, a test could do this
+    // without prompting unless guarded.
     if !ctx.dry_run && !sys::allow_global_changes() {
         return Ok(());
     }
-    // Read the account database, not $SHELL: $SHELL is set at login, so after a
-    // successful chsh this session still reports the old value and would
-    // re-prompt on every run, and macOS chsh asks for a password.
+    // $SHELL stays stale after chsh. Read the account database to avoid repeated
+    // prompts, which ask for a password on macOS.
     let current =
         sys::login_shell_of_record().unwrap_or_else(|| std::env::var("SHELL").unwrap_or_default());
     // Compare resolved paths: on a usrmerged system `which` finds

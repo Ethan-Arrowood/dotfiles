@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  # Nothing gets published without the same gates CI enforces.
+  # Require CI checks before publishing.
   check:
     runs-on: ubuntu-latest
     steps:

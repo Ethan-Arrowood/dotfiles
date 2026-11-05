@@ -1,5 +1,4 @@
-# Sourced by every zsh, including non-interactive ones. Keep it to variables
-# that tools need to find, never anything that prints or is slow.
+# Every zsh reads this, including non-interactive shells. Keep it fast and silent.
 
 export EDITOR="${EDITOR:-vim}"
 export VISUAL="$EDITOR"

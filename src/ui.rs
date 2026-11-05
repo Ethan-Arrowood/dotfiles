@@ -1,7 +1,4 @@
-//! Terminal output and prompting.
-//!
-//! Every user-visible line goes through here so `--dry-run` and color
-//! handling stay consistent across layers.
+//! Shared terminal output and prompts.
 
 use owo_colors::{OwoColorize, Stream::Stdout};
 use std::io::{self, Write};
@@ -43,8 +40,7 @@ pub fn dry(msg: &str) {
 use std::sync::atomic::{AtomicUsize, Ordering};
 static WARNINGS: AtomicUsize = AtomicUsize::new(0);
 
-/// How many warnings this run produced, so `install` can say so at the end
-/// rather than printing fifteen yellow lines and exiting 0.
+/// Count warnings for the install summary, even when installation exits 0.
 pub fn warning_count() -> usize {
     WARNINGS.load(Ordering::Relaxed)
 }
@@ -73,9 +69,7 @@ pub fn detail(msg: &str) {
     }
 }
 
-/// Ask a yes/no question. Returns false when there is no terminal to ask on
-/// (piped, CI, a subshell) rather than failing. The caller treats that as
-/// "not authorised", which is the safe default for anything outward-facing.
+/// Ask for consent. Without a terminal, return false unless assume_yes is set.
 pub fn confirm(question: &str, assume_yes: bool) -> bool {
     if assume_yes {
         return true;
@@ -100,8 +94,7 @@ pub fn confirm(question: &str, assume_yes: bool) -> bool {
     let _ = tty.flush();
 
     let mut answer = String::new();
-    // Read a single line straight from the terminal, not stdin, so this works
-    // even when the process was invoked through a pipe.
+    // Read /dev/tty so prompts work when stdin is a pipe.
     let mut reader = io::BufReader::new(tty);
     use std::io::BufRead;
     if reader.read_line(&mut answer).is_err() {

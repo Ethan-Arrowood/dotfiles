@@ -1,8 +1,5 @@
-//! Homebrew helpers and Brewfile parsing.
-//!
-//! Brewfiles here are a plain list: `formula NAME`, `cask NAME`, `tap NAME`,
-//! one per line, `#` comments allowed. Not `brew bundle` syntax, so there is
-//! no dependency on the bundle tap and a single bad entry stays non-fatal.
+//! Parse `formula NAME`, `cask NAME` and `tap NAME` lines with `#` comments.
+//! Avoid brew bundle syntax so bad entries stay non-fatal.
 
 use crate::ctx::Ctx;
 use crate::sys::{self, Cmd};
@@ -60,17 +57,9 @@ pub fn brew_bin() -> Option<PathBuf> {
     sys::which("brew")
 }
 
-/// Put brew's environment into this process so later steps find the packages
-/// it installs without a new shell.
-///
-/// `brew shellenv` is shell source, not a list of assignments, and parsing it
-/// line by line does not work: Homebrew sets PATH through
-/// `eval "$(path_helper -s)"`, which has no `export ` prefix, and emits values
-/// like `"/opt/homebrew/share/info:${INFOPATH:-}"` that need shell expansion.
-/// A line parser drops PATH silently, and then every later has()/which()
-/// misses brew-installed tools on a fresh machine.
-///
-/// So let a shell evaluate it and read the resulting environment back.
+/// Load brew variables so later steps find installed tools.
+/// Evaluate `brew shellenv` in a shell: its path_helper calls and expansions
+/// cannot be parsed as assignments. The old parser silently dropped PATH.
 pub fn load_shellenv() -> Result<()> {
     let Some(brew) = brew_bin() else {
         return Ok(());
@@ -91,8 +80,7 @@ pub fn load_shellenv() -> Result<()> {
         let Some((key, val)) = entry.split_once('=') else {
             continue;
         };
-        // Only the variables brew manages. A wholesale import would drag in
-        // /bin/sh's own environment.
+        // Import only brew variables, not /bin/sh's full environment.
         if matches!(
             key,
             "PATH"
@@ -164,10 +152,8 @@ fn has_cask(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// What a cask installs that may already be on the machine without brew:
-/// its `.app` names, the receipt ids of a `.pkg` cask (Tailscale ships one),
-/// and the commands a CLI cask links (`agy` has its own installer). A copy
-/// installed by hand or MDM is then not clobbered or doubled.
+/// Apps, package receipts and commands that identify an existing cask install.
+/// Avoid replacing copies installed by hand or MDM.
 #[derive(Debug, Default, PartialEq)]
 struct CaskFootprint {
     apps: Vec<String>,
@@ -242,8 +228,7 @@ fn installed_outside_brew(name: &str) -> Option<String> {
         })
 }
 
-// The installed checks below run in dry-run too: they only read, and without
-// them `-n` lists every package as an install.
+// Check installed packages during dry-run so it lists only missing ones.
 
 pub fn install_formula(ctx: &Ctx, name: &str) -> Result<()> {
     if has_formula(name) {
@@ -300,10 +285,9 @@ pub fn bundle(ctx: &Ctx, path: &Path) -> Result<()> {
     if !ctx.dry_run && !sys::allow_global_changes() {
         return Ok(());
     }
-    // A layer with a Brewfile can be selected without mac-base, which is
-    // what installs Homebrew (`--profile core --with mac-apps`).
+    // Layers with Brewfiles can be selected without mac-base, which installs brew.
     if !ctx.dry_run && brew_bin().is_none() {
-        ui::warn("Homebrew is not installed; add the mac-base layer, which installs it");
+        ui::warn("Homebrew is missing; add the mac-base layer");
         return Ok(());
     }
     let text =

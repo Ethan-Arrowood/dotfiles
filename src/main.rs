@@ -40,11 +40,11 @@ enum Command {
     /// Show available profiles and layers
     #[command(alias = "ls")]
     List,
-    /// Show what is installed on this machine
+    /// Show installed layers and links
     Status,
     /// Re-link $HOME files only, no packages
     Link,
-    /// Check the current machine for problems
+    /// Check tools, SSH, signing and links
     Doctor,
     /// Register this machine's ssh key with GitHub (auth + signing)
     #[command(alias = "gh")]
@@ -56,7 +56,7 @@ struct InstallArgs {
     /// Profile to install (default: core, or mac-dev on macOS)
     #[arg(short, long)]
     profile: Option<String>,
-    /// Add a layer on top of the profile
+    /// Add a layer to the profile
     #[arg(long, value_name = "LAYER")]
     with: Vec<String>,
     /// Drop a layer from the profile
@@ -86,9 +86,7 @@ fn main() {
 fn real_main() -> Result<()> {
     let cli = Cli::parse();
 
-    // One context for every command. The defaults are the safe ones (do the
-    // work for real, ask before anything outward-facing), and only `install`
-    // takes flags that change them.
+    // Only `install` overrides these defaults: run changes and prompt for consent.
     let mut ctx = Ctx::new(Ctx::find_root()?)?;
 
     match cli.command {
@@ -163,9 +161,7 @@ fn install(ctx: &Ctx, args: InstallArgs) -> Result<()> {
     for l in &selected {
         ui::head(&format!("Layer {}: {}", l.name, l.description));
         (l.install)(ctx, l)?;
-        // Applied to every layer, so a layer opts in by shipping the files
-        // rather than by adding code: home/ -> $HOME, Skillfile -> cloned
-        // and symlinked skills and Claude rules.
+        // Every layer opts into links and Skillfiles by shipping the files.
         link::link_home_dir(ctx, &l.path(ctx))?;
         skills::install(ctx, l, &mut claimed)?;
     }
@@ -178,7 +174,7 @@ fn install(ctx: &Ctx, args: InstallArgs) -> Result<()> {
     let failures = ui::warning_count();
     if failures > 0 && !ctx.dry_run {
         ui::warn(&format!(
-            "{failures} step(s) reported a problem above; run `dotfiles doctor` to check"
+            "{failures} warning(s); run `dotfiles doctor` to check"
         ));
     }
     if ctx.dry_run {
@@ -196,8 +192,7 @@ fn install(ctx: &Ctx, args: InstallArgs) -> Result<()> {
     Ok(())
 }
 
-/// What is left that this tool cannot do itself. Prints only steps that still
-/// apply, so a finished machine prints nothing.
+/// Print remaining setup steps, if any.
 fn next_steps(ctx: &Ctx) {
     let mut steps: Vec<String> = Vec::new();
     let key = signing::ssh_key_path(ctx);
@@ -247,8 +242,7 @@ fn next_steps(ctx: &Ctx) {
         .map(|t| t.contains("format = ssh"))
         .unwrap_or(false)
     {
-        // Signing with ssh only shows Verified on GitHub once the key is
-        // uploaded a SECOND time, as a signing key. Pushes work either way.
+        // GitHub needs a separate signing-key upload for Verified commits.
         if let Some(pk) = &pubkey {
             let body = pk.split_whitespace().nth(1).unwrap_or_default();
             if let Ok(c) = sys::Cmd::new("gh")
@@ -356,9 +350,7 @@ fn relink(ctx: &Ctx) -> Result<()> {
             ui::warn(&format!("unknown layer in recorded state: {n}"));
             continue;
         };
-        // Everything the install loop links, not just home/: this is the
-        // documented repair tool, and ssh config.d, the Claude rules and the
-        // skill links all go stale the same way.
+        // Repair home/ and Skillfile links. SSH and app links need `install`.
         link::link_home_dir(ctx, &l.path(ctx))?;
         skills::install(ctx, &l, &mut claimed)?;
     }

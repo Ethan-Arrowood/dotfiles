@@ -71,9 +71,7 @@ fn rust(ctx: &Ctx) -> Result<()> {
         return Ok(());
     }
     ui::step("installing rustup");
-    // --no-modify-path: this repo owns the shell config, and rustup would
-    // otherwise append to ~/.zshenv, which is a symlink into the repo, so the
-    // edit would land in tracked content.
+    // Prevent rustup from appending through ~/.zshenv into tracked repo content.
     if !sys::run_remote_script(
         ctx,
         "rustup-init",
@@ -119,11 +117,8 @@ fn python(ctx: &Ctx) -> Result<()> {
         return Ok(());
     }
     ui::step("installing uv");
-    // Same reasoning as rustup above. uv's installer is cargo-dist based, which
-    // reads INSTALLER_NO_MODIFY_PATH; newer versions also honor
-    // UV_NO_MODIFY_PATH. Without this it appends to ~/.zshenv, and since that
-    // is a symlink into this repo the line lands in tracked content, which
-    // has already happened once here.
+    // Prevent uv from editing the symlinked ~/.zshenv, which once changed this repo.
+    // Support cargo-dist's INSTALLER_NO_MODIFY_PATH and uv's UV_NO_MODIFY_PATH.
     if !sys::run_remote_script(
         ctx,
         "uv installer",
