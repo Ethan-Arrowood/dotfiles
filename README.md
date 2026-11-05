@@ -10,9 +10,9 @@ curl -fsSL https://raw.githubusercontent.com/Ethan-Arrowood/dotfiles/main/instal
 dotfiles install --profile mac-dev
 ```
 
-On a factory-fresh Mac that is the only command. The script installs the Xcode Command Line Tools itself (sudo asks for your password once), then clones, downloads the binary and runs it. If that fails (no terminal for sudo, or MDM restrictions), it falls back to Apple's GUI installer and asks you to re-run.
+On a factory-fresh Mac, the first run opens Apple's Command Line Tools installer and stops. Install them, run the same command again, and it clones the repo, downloads the binary and runs it.
 
-Safe to run twice. A second run re-links nothing, rewrites no generated file or `defaults` value that already matches, and leaves installed toolchains alone. CI asserts this for the core profile. Add `--dry-run` to see the plan without changing anything, and `--update` to refresh installed toolchains (rustup, uv), which never happens otherwise. The Xcode Command Line Tools are installed if missing and then left alone: they track the OS release, so updating them belongs to Software Update.
+Safe to run twice. A second run re-links nothing, rewrites no generated file or `defaults` value that already matches, and leaves installed toolchains alone. CI asserts this for the core profile. Add `--dry-run` to see the plan without changing anything, and `--update` to refresh installed toolchains (rustup, uv), which never happens otherwise. The Xcode Command Line Tools are left to Software Update once installed.
 
 Auditing rather than using it? [ARCHITECTURE.md](ARCHITECTURE.md) walks the code: the install loop, every path that touches `$HOME`, the three dangerous operations and their guards, and what the tests actually assert.
 
@@ -31,20 +31,6 @@ src/            the orchestrator
 layers/         layer assets (symlinked into $HOME)
 profiles/       named layer sets
 ```
-
-### Why not shell
-
-It was shell first. Five bugs in one sitting made the case for a rewrite. Each now has a test, or can't happen in Rust:
-
-| Bug | Cause | Guard |
-| --- | --- | --- |
-| Layer loop broke at 2+ layers | zsh does not word-split unquoted vars | `no_runtime_globbing_or_word_splitting` |
-| Every `setopt` silently reverted | `local_options` restores on return | `zsh_fragments_are_guarded_...` |
-| Install truncated, no output | `has gh &&` returning 1 under `set -e` | none needed: errors are `Result`s |
-| Install aborted on a bad config | unguarded `$(...)` under `set -e` | none needed: errors are `Result`s |
-| Brewfile comments became package names | naive `read` | `trailing_comments_are_not_part_of_the_name` |
-
-Run them with `cargo test`. CI also installs the core profile in a bare `debian:bookworm-slim` container and checks the result: the packages, the ssh config, the agentic rules and hook, both shells loading `init.sh`, a second run changing nothing, the sandbox guard, and an ssh-signed commit verifying (`%G? = G`).
 
 ## Profiles
 
@@ -104,7 +90,7 @@ layers/core/
 └── ssh/*.conf     ~/.ssh/config.d/ fragments
 ```
 
-The directory name **is** the layer name, and install order is the declaration order of `registry()` in `src/layer.rs`: one ordered list, one source of truth. (The shell version numbered these directories because a glob decided the order; nothing globs any more, so the numbers were just a second place for the ordering to drift.)
+The directory name **is** the layer name, and install order is the declaration order of `registry()` in `src/layer.rs`: one ordered list, one source of truth.
 
 Numbers on the *fragment files* are still load-bearing: they order files **within** a layer, and that comes from a filesystem sort.
 
@@ -247,14 +233,14 @@ Git pushes to `https://github.com/` URLs over SSH (`pushInsteadOf`). Clones and 
 dotfiles github
 ```
 
-GitHub treats these as two separate uploads of the same key, which is the part worth not having to remember:
+GitHub treats these as two separate uploads of the same key:
 
 | What | Purpose | Token scope |
 | --- | --- | --- |
 | ssh **authentication** key | `git push` works | `admin:public_key` |
 | ssh **signing** key | commits show Verified | `admin:ssh_signing_key` |
 
-The same ssh key has to be uploaded **twice**, once as each type. That is the step everyone forgets. `dotfiles github` checks what is already registered, requests any missing token scope for you, uploads only what is needed, and then verifies by authenticating over ssh and making a real signed commit in a temp repo. Every upload asks first; nothing touches your account unattended.
+The same ssh key has to be uploaded **twice**, once as each type. `dotfiles github` checks what is already registered, requests any missing token scope for you, uploads only what is needed, and then verifies by authenticating over ssh and making a real signed commit in a temp repo. Every upload asks first; nothing touches your account unattended.
 
 ## Commit signing
 

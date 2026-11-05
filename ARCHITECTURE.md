@@ -68,7 +68,7 @@ Seven tests in that file cover exactly these cases, against a throwaway `$HOME`.
 Everything that escapes `$HOME` is behind [`sys::allow_global_changes()`](src/sys.rs):
 
 1. **Package installs**: `brew` ([`brew.rs`](src/brew.rs)) and `sys_install`, which escalates to root. Guarded *inside* `sys_install` so no caller can forget.
-2. **macOS system state**: `defaults write` from [`Defaultsfile`](layers/mac-base/Defaultsfile), `scutil --set`, Xcode CLT ([`mac_base.rs`](src/layers/mac_base.rs)), the Dock from each layer's `Dockfile` ([`dock.rs`](src/dock.rs)), and Chrome policies ([`mac_apps.rs`](src/layers/mac_apps.rs)).
+2. **macOS system state**: `defaults write` from [`Defaultsfile`](layers/mac-base/Defaultsfile), `scutil --set`, opening the Xcode CLT installer ([`mac_base.rs`](src/layers/mac_base.rs)), the Dock from each layer's `Dockfile` ([`dock.rs`](src/dock.rs)), and Chrome policies ([`mac_apps.rs`](src/layers/mac_apps.rs)).
 3. **Account state**: `chsh` and `ssh-add --apple-use-keychain` ([`core.rs`](src/layers/core.rs)), and key uploads in `dotfiles github` ([`github.rs`](src/github.rs)). `ssh-add` looks `$HOME`-scoped but writes the real login Keychain.
 
 The guard compares `$HOME` against the account's home from `dscl`/`getent`. A mismatch means a test harness, so global changes are skipped. **It fails closed**: if it cannot determine the real home, it blocks rather than allows. `DOTFILES_ALLOW_SANDBOXED_HOME=1` overrides it, and no other value does. CI asserts it fires.
@@ -116,7 +116,7 @@ No private key material is handled anywhere in this codebase.
 | [`hooks.rs`](src/hooks.rs) | adding a hook keeps existing hooks and key order and is idempotent, a `~/` spelling of the same hook counts, Codex's SessionStart hook gets the `startup` matcher |
 | [`claude.rs`](src/claude.rs) | org rules link as `AGENTS.md` only where the org directory exists, old one-line imports are moved out, other files stay, a plugin option you set is never overridden |
 | [`layer.rs`](src/layer.rs) | unique names, every layer has its directory, `core` can't be dropped, the README example matches the struct |
-| [`mac_base.rs`](src/layers/mac_base.rs) | the newest CLT label is picked by version, not listing order; the shipped `Defaultsfile` parses cleanly |
+| [`mac_base.rs`](src/layers/mac_base.rs) | the shipped `Defaultsfile` parses cleanly, malformed and mistyped lines are reported |
 | [`dock.rs`](src/dock.rs) | paths with spaces, flags after the path, paths read back out of the Dock's plist |
 | [`signing.rs`](src/signing.rs) | `.pub` is appended, not substituted for an existing extension; the key path is quoted for git config |
 | [`github.rs`](src/github.rs) | registered keys are matched by type |

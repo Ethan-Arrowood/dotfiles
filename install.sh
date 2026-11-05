@@ -36,47 +36,19 @@ for tool in curl tar; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
 done
 
-# Install the Xcode Command Line Tools headlessly.
-#
-# `softwareupdate` only offers CLT while this sentinel file exists (an
-# undocumented but long-standing Apple behaviour, verified working on macOS
-# 26.6). The listing is not version-ordered, so sort rather than taking the
-# last line. Mirrors xcode_clt() in src/layers/mac_base.rs, which handles the
-# same job for `dotfiles install` run directly.
-install_clt() {
-  sentinel=/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
-  touch "$sentinel"
-  label=$(softwareupdate -l 2>/dev/null \
-    | sed -n 's/^ *\* Label: \(Command Line Tools.*\)$/\1/p' \
-    | sort -V | tail -1)
-  rm -f "$sentinel"
-
-  [ -n "$label" ] || return 1
-  say "installing $label"
-  say "    a few minutes, and sudo will ask for your password"
-  sudo softwareupdate --install "$label" --verbose || return 1
-  git --version >/dev/null 2>&1
-}
-
 # `command -v git` is not enough on macOS: /usr/bin/git exists as a stub even
 # with no Command Line Tools installed, so the check passes and the clone then
-# fails against a GUI prompt. Actually running git is the only real test.
+# fails. Running git is the only real test. When it fails, open Apple's
+# installer: a headless install depends on undocumented behaviour.
 if ! git --version >/dev/null 2>&1; then
   if [ "$(uname -s)" != "Darwin" ]; then
     die "git is required"
   fi
   say "git is not usable yet: the Xcode Command Line Tools are missing"
-  [ -z "$dry_run" ] || die "dry run: would install the Command Line Tools; nothing else can run without git"
-  if ! install_clt; then
-    # No tty for sudo, softwareupdate restricted by MDM, or Apple changed the
-    # sentinel. Fall back to the GUI installer and a second run.
-    say "could not install them from here; opening Apple's installer instead"
-    xcode-select --install 2>/dev/null || true
-    say ""
-    say "When it finishes, run this same command again and it will carry on."
-    exit 1
-  fi
-  say "Command Line Tools installed"
+  [ -z "$dry_run" ] || die "dry run: would open Apple's Command Line Tools installer"
+  xcode-select --install 2>/dev/null || true
+  say "Install them in the window that opened, then run this same command again."
+  exit 1
 fi
 
 # --- repo ---
