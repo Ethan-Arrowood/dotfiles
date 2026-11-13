@@ -9,3 +9,6 @@ cask ghostty                    # terminal; config lives in config/ghostty/
 # through yarn for dcli; fnm takes precedence in interactive shells.
 tap dashlane/tap
 formula dashlane/tap/dashlane-cli
+
+# Makes Chrome the default browser; see src/layers/mac_apps.rs.
+formula defaultbrowser
