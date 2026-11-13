@@ -17,8 +17,12 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
         ui::skip("not macOS: skipping codex, agy, gcloud, Tailscale and LastPass");
     }
     dispatch(ctx)?;
-    if !ctx.home.join("dev/harperfast").is_dir() {
-        ui::warn("~/dev/harperfast does not exist yet; the harper aliases assume that layout");
+    let harper = skills::src_root(ctx).join("harperfast");
+    if !harper.is_dir() {
+        ui::warn(&format!(
+            "{} does not exist yet; the harper aliases assume that layout",
+            ctx.pretty(&harper)
+        ));
     }
     Ok(())
 }

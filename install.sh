@@ -12,7 +12,9 @@ set -eu
 main() {
 
 REPO="${DOTFILES_REPO:-Ethan-Arrowood/dotfiles}"
-REPO_DIR="${DOTFILES_ROOT:-$HOME/dev/dotfiles}"
+# Match the Skillfile checkouts: <src dir>/<owner, lowercased>/<repo>.
+owner="$(printf '%s' "${REPO%%/*}" | tr '[:upper:]' '[:lower:]')"
+REPO_DIR="${DOTFILES_ROOT:-${DOTFILES_SRC_DIR:-$HOME/dev}/$owner/${REPO#*/}}"
 BIN_DIR="${DOTFILES_BIN_DIR:-$HOME/.local/bin}"
 VERSION="${DOTFILES_VERSION:-latest}"
 

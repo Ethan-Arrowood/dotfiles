@@ -80,7 +80,7 @@ Other changes:
 - Hooks: [`hooks.rs`](src/hooks.rs) runs SessionStart scripts once per install or relink. It creates their destination directories and sets the agent config variable and `AGENTIC_DEV_DIR`. agentic manages `~/.codex/AGENTS.md`, `~/.agents/skills/` and its Claude rule and skill links. See [agentic](https://github.com/Ethan-Arrowood/agentic) for script behavior.
 - External installers: [`mac_langs.rs`](src/layers/mac_langs.rs) runs fnm, rustup, uv, and `npm install --global` for Npmfile packages into `~/.npm-global`; [`mac_apps.rs`](src/layers/mac_apps.rs) runs the Claude installer; [`work_harper.rs`](src/layers/work_harper.rs) registers the dispatch marketplace and plugin. These tools manage their own files.
 - Shell startup creates zsh [history](layers/core/zsh/00-options.zsh) and [completion caches](layers/core/zsh/10-completion.zsh) under the configured XDG directories.
-- Bootstrap: [`install.sh`](install.sh) clones or updates `$DOTFILES_ROOT` (default `~/dev/dotfiles`) and writes the binary to `$DOTFILES_BIN_DIR` (default `~/.local/bin`).
+- Bootstrap: [`install.sh`](install.sh) clones or updates `$DOTFILES_ROOT` (default `$DOTFILES_SRC_DIR/<owner>/<repo>` from `$DOTFILES_REPO`, so `~/dev/ethan-arrowood/dotfiles`) and writes the binary to `$DOTFILES_BIN_DIR` (default `~/.local/bin`).
 
 ### link_file is the one to read closely
 
