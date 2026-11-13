@@ -58,13 +58,13 @@ pub fn registry() -> Vec<Layer> {
         },
         Layer {
             name: "mac-apps",
-            description: "Essential apps: Chrome, VS Code, Claude, Ghostty, Dashlane CLI.",
+            description: "Essential apps: Chrome, VS Code, Claude, Ghostty, Podman, Dashlane CLI.",
             macos_only: true,
             install: layers::mac_apps::install,
         },
         Layer {
             name: "mac-apps-extra",
-            description: "Quality-of-life apps: Slack, Zoom, Spotify, Discord, containers.",
+            description: "Quality-of-life apps: Slack, Zoom, Spotify, Discord, DaisyDisk.",
             macos_only: true,
             install: layers::mac_apps_extra::install,
         },
