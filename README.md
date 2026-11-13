@@ -169,6 +169,8 @@ To name an unknown id, toggle a shortcut in System Settings > Keyboard > Keyboar
 
 `core` links SSH fragments into `~/.ssh/config.d/` and prepends `Include ~/.ssh/config.d/*` to `~/.ssh/config`, backing up the original. The managed `github.com` settings take precedence; fallback defaults preserve your other host settings.
 
+It also links GitHub's published host keys, [`github.known_hosts`](layers/core/ssh/github.known_hosts), into `~/.ssh/known_hosts.d/`. SSH trusts them for `github.com` alongside `~/.ssh/known_hosts`, so the first connection needs no fingerprint prompt. That file says how to refresh the keys.
+
 Outside containers, it creates a missing ed25519 key and prompts for a passphrase. Without a terminal, it prints the command instead. It loads the key into the agent, using `--apple-use-keychain` on macOS to save the passphrase.
 
 `DOTFILES_SSH_KEY` overrides `~/.ssh/id_ed25519`. For SSH authentication with another path, also add a matching `IdentityFile` in `~/.ssh/config.d/`.

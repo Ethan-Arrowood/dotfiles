@@ -30,6 +30,7 @@ Layers opt in by shipping files. `home/` and `Skillfile` processing runs for eve
 | `home/*` | Link each entry into `$HOME` |
 | `shell/*.sh`, `zsh/*.zsh` | Sort by filename within each layer; generate shell init |
 | `ssh/*.conf` | Core links fragments into `~/.ssh/config.d/` |
+| `ssh/*.known_hosts` | Core links host keys into `~/.ssh/known_hosts.d/`, outside `config.d/` because ssh reads every file there as config |
 | `Brewfile` | [`brew.rs`](src/brew.rs): `formula <name>`, `cask <name>`, `tap <name>`, one per line with `#` comments. Taps run first. Report malformed lines with line numbers; warn and continue on failed casks |
 | `Skillfile` | [`skills.rs`](src/skills.rs): [syntax](README.md#skills). Find `SKILL.md` at depths 1 and 2; stop descending inside a skill. Track claimed names across layers |
 | `Defaultsfile` | [`mac_base.rs`](src/layers/mac_base.rs): `domain key type value`. Report malformed lines with line numbers. Write only changed keys |
@@ -49,6 +50,7 @@ Links through [`link::link_file`](src/link.rs):
 | --- | --- | --- |
 | `home/*` | `$HOME/*`: `.zshrc`, `.zshenv`, `.zprofile`, `.gitconfig`, `.gitignore_global` | [`link.rs`](src/link.rs) |
 | `ssh/*.conf` | `~/.ssh/config.d/` | [`core.rs`](src/layers/core.rs) |
+| `ssh/*.known_hosts` | `~/.ssh/known_hosts.d/` | [`core.rs`](src/layers/core.rs) |
 | `rules/*.md` and subdirectories except `orgs/` | `~/.claude/rules/` | [`claude.rs`](src/claude.rs) |
 | `rules/orgs/<org>.md` | `$DOTFILES_SRC_DIR/<org>/AGENTS.md`, default `~/dev/<org>/AGENTS.md`, where the org directory exists | [`claude.rs`](src/claude.rs) |
 | Skill directories | `~/.claude/skills/` | [`skills.rs`](src/skills.rs) |

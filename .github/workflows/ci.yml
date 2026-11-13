@@ -48,6 +48,8 @@ jobs:
           sed "s#~/#$HOME/#" ~/.ssh/config > /tmp/ssh_config
           ssh -F /tmp/ssh_config -G github.com | grep -qx 'user git'
           ssh -F /tmp/ssh_config -G example.com | grep -qx 'serveraliveinterval 60'
+          ssh -F /tmp/ssh_config -G github.com | grep -q '^userknownhostsfile .*known_hosts.d/github.known_hosts'
+          ssh-keygen -F github.com -f ~/.ssh/known_hosts.d/github.known_hosts | grep -q ssh-ed25519
           # Rules and the sync hook from Ethan-Arrowood/agentic.
           test -L ~/.claude/rules/git.md
           grep -q 'agents/claude/sync.sh' ~/.claude/settings.json
