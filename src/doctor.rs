@@ -1,9 +1,8 @@
 //! Check the current machine for problems.
 
 use crate::ctx::Ctx;
-use crate::signing;
 use crate::sys::{self, Cmd};
-use crate::ui;
+use crate::{claude, signing, skills, ui};
 use anyhow::Result;
 
 #[derive(Default)]
@@ -149,6 +148,27 @@ pub fn run(ctx: &Ctx) -> Result<bool> {
             "git is configured to sign with {signing_key}, but gpg signing was removed; \
              re-run `dotfiles install` to switch to the ssh key"
         ));
+    }
+
+    // Org rules need Claude Code to load AGENTS.md beside a repo's CLAUDE.md.
+    if claude::has_org_rule_links(&skills::src_root(ctx)) {
+        match claude::instruction_files() {
+            Some(f) if f.loads_both() => {
+                r.ok(&format!("Claude Code Project instructions is {}", f.value))
+            }
+            Some(f) => {
+                let fix = if f.configured {
+                    format!("Set it to {} in /config", claude::BOTH)
+                } else {
+                    "Run: dotfiles install".into()
+                };
+                r.warn(&format!(
+                    "Claude Code Project instructions is {}, so repos with a CLAUDE.md skip the org AGENTS.md. {fix}",
+                    f.value
+                ));
+            }
+            None => r.skip("could not read Claude Code's Project instructions setting"),
+        }
     }
 
     if crate::ncu::config_missing(ctx) {

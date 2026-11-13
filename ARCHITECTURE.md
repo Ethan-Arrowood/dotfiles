@@ -125,6 +125,8 @@ Org rules use parent-directory `AGENTS.md` links because user-level `paths:` pat
 
 When org links exist, the tool sets `pluginConfigs."cc-plugin-agents-md@builtin".options.instructionFiles` to `claude-md-and-agents-md`, unless already set. This lets Claude Code load org rules beside a repo's `CLAUDE.md`.
 
+`dotfiles doctor` checks the effective value with `claude plugin configure --json cc-plugin-agents-md@builtin`. Claude Code resolves the value there, including the plugin's old id `agents-md@builtin` and invalid values, so the check does not parse `settings.json` itself.
+
 ## Signing
 
 [`signing.rs`](src/signing.rs) validates the public key and generates a Git include. [Setup and forwarded-agent signing](README.md#commit-signing) are in the user guide. The Rust code never reads private key material.
@@ -141,7 +143,7 @@ When org links exist, the tool sets `pluginConfigs."cc-plugin-agents-md@builtin"
 | [`brew.rs`](src/brew.rs) | Comments, malformed lines, namespaced formulas, cask apps/receipts/commands, `brew shellenv` imports `PATH` |
 | [`skills.rs`](src/skills.rs) | Entry parsing, `#` separators, malformed lines, known hook agents, lowercase owners, discovery depth and exclusions |
 | [`hooks.rs`](src/hooks.rs) | Existing hooks and key order preserved, idempotence, aliases, malformed shapes, Codex `startup` matcher |
-| [`claude.rs`](src/claude.rs) | Org links only in existing directories, old imports backed up, user files and plugin choices preserved |
+| [`claude.rs`](src/claude.rs) | Org links only in existing directories, old imports backed up, user files and plugin choices preserved, `plugin configure` output parsed |
 | [`layer.rs`](src/layer.rs) | Unique names, asset directories, mandatory `core`, README struct example |
 | [`mac_langs.rs`](src/layers/mac_langs.rs) | `~/.npmrc` merge keeps other lines and is idempotent, shipped Npmfile parses, extra words reported |
 | [`ncu.rs`](src/ncu.rs) | missing config detected where ncu reads it (not `~/.ncurc`), only key names read, URL encoding |
