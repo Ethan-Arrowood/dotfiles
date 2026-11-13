@@ -13,6 +13,8 @@ pub struct Ctx {
     pub update: bool,
     /// Configure commit signing. False only when --no-signing was passed.
     pub signing: bool,
+    /// Print output that is normally summarized, such as failed clone attempts.
+    pub verbose: bool,
     /// Where displaced files are moved. Created lazily on first use.
     pub backup_dir: PathBuf,
     /// Generated machine-local state: ~/.config/dotfiles
@@ -20,7 +22,7 @@ pub struct Ctx {
 }
 
 impl Ctx {
-    /// Create paths and default flags. Only `install` overrides the flags.
+    /// Create paths and default flags. Only `install` overrides the flags, except `--verbose`.
     pub fn new(root: PathBuf) -> Result<Self> {
         let home = dirs::home_dir().context("cannot determine home directory")?;
         let stamp = std::process::Command::new("date")
@@ -44,6 +46,7 @@ impl Ctx {
             assume_yes: false,
             update: false,
             signing: true,
+            verbose: false,
         })
     }
 

@@ -218,34 +218,76 @@ pub(crate) fn ensure_clone(ctx: &Ctx, owner: &str, name: &str) -> Result<Option<
         std::fs::create_dir_all(parent)?;
     }
 
-    // Try HTTPS without prompts for fresh machines lacking credentials.
-    // Then try gh for private repos, then SSH.
-    let https = format!("https://github.com/{slug}.git");
-    let mut ok = Cmd::new("git")
-        .args(["clone", "--quiet", &https])
-        .arg(dest.to_string_lossy())
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .run(ctx, &format!("git clone {https}"))?;
-    if !ok && sys::has("gh") {
-        ok = Cmd::new("gh")
-            .args(["repo", "clone", &slug])
-            .arg(dest.to_string_lossy())
-            .run(ctx, &format!("gh repo clone {slug}"))?;
-    }
-    if !ok {
-        ok = Cmd::new("git")
-            .arg("clone")
-            .arg(format!("git@github.com:{slug}.git"))
-            .arg(dest.to_string_lossy())
-            .run(ctx, &format!("git clone {slug} over ssh"))?;
-    }
-    if !ok {
-        ui::warn(&format!(
-            "could not clone {slug} (private? not authenticated?)"
-        ));
+    ui::step(&format!("cloning {slug} into {}", ctx.pretty(&dest)));
+    if !first_success(ctx, &slug, &clone_attempts(&slug, &dest))? {
         return Ok(None);
     }
     Ok(Some(dest))
+}
+
+/// Try HTTPS without prompts for fresh machines lacking credentials.
+/// Then try gh for private repos, then SSH.
+fn clone_attempts(slug: &str, dest: &Path) -> Vec<Cmd> {
+    let dest = dest.to_string_lossy();
+    let mut attempts = vec![Cmd::new("git")
+        .args([
+            "clone",
+            "--quiet",
+            &format!("https://github.com/{slug}.git"),
+        ])
+        .arg(dest.clone())
+        .env("GIT_TERMINAL_PROMPT", "0")];
+    if sys::has("gh") {
+        attempts.push(
+            Cmd::new("gh")
+                .args(["repo", "clone", slug])
+                .arg(dest.clone()),
+        );
+    }
+    attempts.push(
+        Cmd::new("git")
+            .args(["clone", "--quiet", &format!("git@github.com:{slug}.git")])
+            .arg(dest),
+    );
+    attempts
+}
+
+/// Run attempts in order until one succeeds. Capture their output so a failed
+/// clone prints one warning instead of every tool's errors. `--verbose` shows
+/// each attempt's output when all of them fail.
+fn first_success(ctx: &Ctx, slug: &str, attempts: &[Cmd]) -> Result<bool> {
+    let mut failed = Vec::new();
+    for cmd in attempts {
+        let out = cmd.capture()?;
+        if out.ok {
+            return Ok(true);
+        }
+        failed.push((cmd.display(), out.combined()));
+    }
+    let reason = failed
+        .last()
+        .and_then(|(_, out)| failure_reason(out))
+        .unwrap_or("no reason given");
+    if ctx.verbose {
+        ui::warn(&format!("could not clone {slug}: {reason}"));
+        for (cmd, out) in &failed {
+            ui::detail(&format!("$ {cmd}"));
+            ui::detail(out.trim_end());
+        }
+    } else {
+        ui::warn(&format!(
+            "could not clone {slug}: {reason} (--verbose shows every attempt)"
+        ));
+    }
+    Ok(false)
+}
+
+/// The first line that explains a failed clone, skipping git's progress line.
+fn failure_reason(output: &str) -> Option<&str> {
+    output
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty() && !l.starts_with("Cloning into"))
 }
 
 /// Find `SKILL.md` through `max_depth` levels. Stop inside a skill so nested
@@ -524,6 +566,65 @@ mod tests {
         let ctx = Ctx::new(std::env::temp_dir()).unwrap();
         let p = checkout_path(&ctx, "Ethan-Arrowood", "agentic");
         assert!(p.ends_with("ethan-arrowood/agentic"), "{}", p.display());
+    }
+
+    #[test]
+    fn failure_reason_is_the_first_explaining_line() {
+        let ssh = "Cloning into 'x'...\n\
+                   git@github.com: Permission denied (publickey).\n\
+                   fatal: Could not read from remote repository.\n\n\
+                   Please make sure you have the correct access rights\n\
+                   and the repository exists.\n";
+        assert_eq!(
+            failure_reason(ssh),
+            Some("git@github.com: Permission denied (publickey).")
+        );
+        assert_eq!(
+            failure_reason("To get started with GitHub CLI, please run:  gh auth login\n"),
+            Some("To get started with GitHub CLI, please run:  gh auth login")
+        );
+        assert_eq!(failure_reason("\nCloning into 'x'...\n"), None);
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let out = Cmd::new("git")
+            .args(["-C", &dir.to_string_lossy()])
+            .args(args.iter().copied())
+            .capture()
+            .unwrap();
+        assert!(out.ok, "git {args:?}: {}", out.combined());
+    }
+
+    /// Failed attempts are captured; the first success stops the sequence.
+    #[test]
+    fn falls_back_quietly_until_an_attempt_succeeds() {
+        let tmp = crate::tmpdir::PrivateTempDir::new("clonetest").unwrap();
+        let origin = tmp.join("origin.git");
+        std::fs::create_dir(&origin).unwrap();
+        git(&origin, &["init", "-q", "--bare"]);
+        let missing = format!("file://{}", tmp.join("missing.git").display());
+        let clone = |url: &str, dest: &str| {
+            Cmd::new("git")
+                .args(["clone", "--quiet", url])
+                .arg(tmp.join(dest).to_string_lossy())
+        };
+        let ctx = Ctx::new(tmp.path().to_path_buf()).unwrap();
+
+        let attempts = [
+            clone(&missing, "a"),
+            clone(&format!("file://{}", origin.display()), "a"),
+            clone(&missing, "b"),
+        ];
+        assert!(first_success(&ctx, "o/r", &attempts).unwrap());
+        assert!(tmp.join("a/.git").is_dir());
+        assert!(
+            !tmp.join("b").exists(),
+            "attempts after a success must not run"
+        );
+
+        let attempts = [clone(&missing, "c"), clone(&missing, "c")];
+        assert!(!first_success(&ctx, "o/r", &attempts).unwrap());
+        assert!(!tmp.join("c").exists());
     }
 
     /// Support both top-level skills and skills/ layouts.

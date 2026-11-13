@@ -32,6 +32,9 @@ use ctx::Ctx;
 struct Cli {
     #[command(subcommand)]
     command: Command,
+    /// Show the output of failed clone attempts
+    #[arg(short, long, global = true)]
+    verbose: bool,
 }
 
 #[derive(Subcommand)]
@@ -91,6 +94,7 @@ fn real_main() -> Result<()> {
 
     // Only `install` overrides these defaults: run changes and prompt for consent.
     let mut ctx = Ctx::new(Ctx::find_root()?)?;
+    ctx.verbose = cli.verbose;
 
     match cli.command {
         Command::Install(args) => {
