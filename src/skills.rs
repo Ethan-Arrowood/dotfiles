@@ -5,7 +5,7 @@ use crate::ctx::Ctx;
 use crate::hooks::{self, Agent};
 use crate::layer::Layer;
 use crate::sys::{self, Cmd};
-use crate::{claude, link, ui};
+use crate::{claude, github, link, ui};
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
@@ -192,7 +192,8 @@ fn checkout_path(ctx: &Ctx, owner: &str, name: &str) -> PathBuf {
     src_root(ctx).join(owner.to_lowercase()).join(name)
 }
 
-/// Clone missing repos. Leave existing working checkouts alone.
+/// Clone missing repos. Leave existing working checkouts alone, except for
+/// moving an HTTPS `origin` to ssh.
 pub(crate) fn ensure_clone(ctx: &Ctx, owner: &str, name: &str) -> Result<Option<PathBuf>> {
     let dest = checkout_path(ctx, owner, name);
     let slug = format!("{owner}/{name}");
@@ -200,6 +201,7 @@ pub(crate) fn ensure_clone(ctx: &Ctx, owner: &str, name: &str) -> Result<Option<
     // .git is a file, not a directory, in a worktree or a submodule.
     if dest.join(".git").exists() {
         ui::skip(&format!("{slug} already cloned at {}", ctx.pretty(&dest)));
+        github::use_ssh_origin(ctx, &dest, Some(&slug), github::ssh_works)?;
         return Ok(Some(dest));
     }
     if dest.exists() {
@@ -222,6 +224,8 @@ pub(crate) fn ensure_clone(ctx: &Ctx, owner: &str, name: &str) -> Result<Option<
     if !first_success(ctx, &slug, &clone_attempts(&slug, &dest))? {
         return Ok(None);
     }
+    // HTTPS clones, and gh clones by default, get HTTPS remotes. Match the ssh clones.
+    github::use_ssh_origin(ctx, &dest, Some(&slug), github::ssh_works)?;
     Ok(Some(dest))
 }
 
