@@ -22,7 +22,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the install loop, file inventory, gua
 
 ## Profiles
 
-Each Mac profile adds to the one above it. The default is `mac-dev` on macOS outside containers, otherwise `core`.
+Each Mac profile adds to the one above it. Without `--profile`, `--with` or `--without`, `dotfiles install` repeats the last install's profile and layers. The first install defaults to `mac-dev` on macOS outside containers, otherwise `core`.
 
 | Profile | Layers | For |
 | --- | --- | --- |
@@ -127,7 +127,7 @@ Trust new Codex hooks with `/hooks`. Start a new session to load changed rules. 
 | `rules <owner>/<repo>` | Rules, separately from skills |
 | `hook <agent> <owner>/<repo>#<path> <Event> [secs]` | A hook for `claude` or `codex` |
 
-Repos clone to `$DOTFILES_SRC_DIR/<owner>/<repo>` (default `~/dev`), with lowercase owners. Cloning tries HTTPS, then `gh repo clone`, then SSH. When all three fail, the installer prints one warning with the last error. Once SSH to GitHub works, it sets an HTTPS `origin` to `git@github.com:<owner>/<repo>.git`, on new and existing checkouts, so every clone pushes with the SSH key. Until then, `origin` stays on HTTPS so fetches keep working. It changes nothing else in existing checkouts. agentic's sync hooks may run `git pull --ff-only`.
+Repos clone to `$DOTFILES_SRC_DIR/<owner>/<repo>` (default `~/dev`), with lowercase owners. Cloning tries HTTPS, then `gh repo clone`, then SSH. When anonymous HTTPS fails and `gh` or SSH isn't set up yet, the installer offers to run `gh auth login` and `dotfiles github` first, once per run, if there's a terminal. When all three fail, the installer prints one warning with the last error, and the closing "Next:" list gives the command to re-run with the same flags. Once SSH to GitHub works, it sets an HTTPS `origin` to `git@github.com:<owner>/<repo>.git`, on new and existing checkouts, so every clone pushes with the SSH key. Until then, `origin` stays on HTTPS so fetches keep working. It changes nothing else in existing checkouts. agentic's sync hooks may run `git pull --ff-only`.
 
 Skills link to those editable checkouts, so edits apply without syncing. The first layer claiming a skill name wins. Local skill directories stay untouched. Remove `harperfast/skills-internal` from the work Skillfile on machines not used for Harper contribution.
 

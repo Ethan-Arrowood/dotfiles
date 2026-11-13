@@ -9,6 +9,7 @@ use crate::tmpdir::PrivateTempDir;
 use crate::ui;
 use anyhow::{bail, Result};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 fn gh_authenticated() -> bool {
     Cmd::new("gh")
@@ -276,10 +277,78 @@ fn ssh_probe() -> String {
         .unwrap_or_default()
 }
 
+/// 0: not probed yet, 1: works, 2: does not. `verify` updates it after setup.
+static SSH_OK: AtomicU8 = AtomicU8::new(0);
+
+fn remember_ssh(ok: bool) {
+    SSH_OK.store(if ok { 1 } else { 2 }, Ordering::Relaxed);
+}
+
 /// Whether ssh to GitHub authenticates. Probed once per run.
 pub(crate) fn ssh_works() -> bool {
-    static OK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *OK.get_or_init(|| ssh_probe().contains("successfully authenticated"))
+    match SSH_OK.load(Ordering::Relaxed) {
+        1 => true,
+        2 => false,
+        _ => {
+            let ok = ssh_probe().contains("successfully authenticated");
+            remember_ssh(ok);
+            ok
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum Setup {
+    /// gh and ssh both work, so private clones can too.
+    Ready,
+    /// Offer `gh auth login` and `dotfiles github`.
+    Ask,
+    /// No gh or no terminal: leave it to the "Next:" list.
+    Skip,
+}
+
+fn setup_decision(gh_installed: bool, terminal: bool, gh_authed: bool, ssh_ok: bool) -> Setup {
+    if gh_authed && ssh_ok {
+        Setup::Ready
+    } else if !gh_installed || !terminal {
+        Setup::Skip
+    } else {
+        Setup::Ask
+    }
+}
+
+/// Called when anonymous HTTPS fails, so the repo is private or missing.
+/// When GitHub access is not set up, offer it once per run, so the gh and ssh
+/// attempts that follow can work in this install.
+pub(crate) fn offer_setup(ctx: &Ctx, slug: &str) -> Result<()> {
+    static ASKED: AtomicBool = AtomicBool::new(false);
+    if ctx.dry_run || ASKED.swap(true, Ordering::Relaxed) {
+        return Ok(());
+    }
+    let has_gh = sys::has("gh");
+    let terminal = ui::has_terminal();
+    // Skip the network checks when there is nobody to ask.
+    if !has_gh || !terminal {
+        return Ok(());
+    }
+    if setup_decision(has_gh, terminal, gh_authenticated(), ssh_works()) != Setup::Ask {
+        return Ok(());
+    }
+    // `run` checks this too. Check first so a sandboxed run asks nothing.
+    if !sys::allow_global_changes() {
+        return Ok(());
+    }
+    let question = format!(
+        "{slug} needs GitHub access, which is not set up yet. \
+         Run `gh auth login` and `dotfiles github` now?"
+    );
+    if !ui::confirm(&question, ctx.assume_yes) {
+        return Ok(());
+    }
+    if let Err(e) = run(ctx) {
+        ui::warn(&format!("GitHub setup failed: {e:#}"));
+    }
+    Ok(())
 }
 
 fn add_ssh(
@@ -345,6 +414,7 @@ fn verify(ctx: &Ctx) -> bool {
 
     let probe = ssh_probe();
     let ssh_ok = probe.contains("successfully authenticated");
+    remember_ssh(ssh_ok);
     if ssh_ok {
         let who = probe
             .lines()
@@ -409,6 +479,21 @@ mod tests {
         assert!(!listed(out, "AAAA", "signing"));
         assert!(listed(out, "BBBB", "signing"));
         assert!(!listed(out, "BBBB", "authentication"));
+    }
+
+    #[test]
+    fn setup_is_offered_only_when_needed_and_askable() {
+        use Setup::*;
+        // Both working: nothing to set up, terminal or not.
+        assert_eq!(setup_decision(true, true, true, true), Ready);
+        assert_eq!(setup_decision(true, false, true, true), Ready);
+        // Either missing, with gh and a terminal: ask.
+        assert_eq!(setup_decision(true, true, false, false), Ask);
+        assert_eq!(setup_decision(true, true, true, false), Ask);
+        assert_eq!(setup_decision(true, true, false, true), Ask);
+        // No terminal or no gh: never ask.
+        assert_eq!(setup_decision(true, false, false, false), Skip);
+        assert_eq!(setup_decision(false, true, false, true), Skip);
     }
 
     #[test]

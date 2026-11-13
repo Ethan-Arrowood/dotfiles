@@ -118,21 +118,100 @@ fn real_main() -> Result<()> {
     }
 }
 
-fn install(ctx: &Ctx, args: InstallArgs) -> Result<()> {
-    let profile = match args.profile {
-        Some(p) => p,
-        None => {
-            let p = if sys::is_macos() && !sys::is_container() {
-                "mac-dev"
-            } else {
-                "core"
-            };
-            ui::step(&format!("no --profile given, defaulting to '{p}'"));
-            p.to_string()
-        }
-    };
+/// The layers a run asks for: a profile plus `--with` and `--without`.
+struct Selection {
+    profile: String,
+    with: Vec<String>,
+    without: Vec<String>,
+}
 
-    let selected = layer::resolve(ctx, &profile, &args.with, &args.without)?;
+impl Selection {
+    /// The flags that select these layers, for repeating the run.
+    fn flags(&self) -> String {
+        let mut s = format!("--profile {}", self.profile);
+        for l in &self.with {
+            s.push_str(&format!(" --with {l}"));
+        }
+        for l in &self.without {
+            s.push_str(&format!(" --without {l}"));
+        }
+        s
+    }
+}
+
+/// Without --profile, --with or --without, repeat the last recorded install.
+/// Otherwise default the profile by platform, as before.
+fn select(ctx: &Ctx, args: &InstallArgs) -> Selection {
+    if let Some(p) = &args.profile {
+        return Selection {
+            profile: p.clone(),
+            with: args.with.clone(),
+            without: args.without.clone(),
+        };
+    }
+    if args.with.is_empty() && args.without.is_empty() {
+        if let Some((profile, layers)) = shellinit::installed(ctx) {
+            if let Ok(base) = layer::profile_layers(ctx, &profile) {
+                let (with, without) = repeat(&base, &layers);
+                let s = Selection {
+                    profile,
+                    with,
+                    without,
+                };
+                ui::step(&format!(
+                    "no --profile given, repeating the last install: {}",
+                    s.flags()
+                ));
+                return s;
+            }
+        }
+    }
+    let p = if sys::is_macos() && !sys::is_container() {
+        "mac-dev"
+    } else {
+        "core"
+    };
+    ui::step(&format!("no --profile given, defaulting to '{p}'"));
+    Selection {
+        profile: p.to_string(),
+        with: args.with.clone(),
+        without: args.without.clone(),
+    }
+}
+
+/// `--with` and `--without` lists that turn a profile's layers into the
+/// recorded ones. Layers that no longer exist are dropped.
+fn repeat(profile: &[String], recorded: &[String]) -> (Vec<String>, Vec<String>) {
+    let known = layer::names();
+    let with = recorded
+        .iter()
+        .filter(|l| !profile.contains(l) && known.contains(&l.as_str()))
+        .cloned()
+        .collect();
+    let without = profile
+        .iter()
+        .filter(|l| !recorded.contains(l))
+        .cloned()
+        .collect();
+    (with, without)
+}
+
+/// The command that repeats this run, with the flags that change what it installs.
+fn rerun_command(sel: &Selection, args: &InstallArgs) -> String {
+    let mut cmd = format!("dotfiles install {}", sel.flags());
+    if args.no_signing {
+        cmd.push_str(" --no-signing");
+    }
+    if args.update {
+        cmd.push_str(" --update");
+    }
+    cmd
+}
+
+fn install(ctx: &Ctx, args: InstallArgs) -> Result<()> {
+    let sel = select(ctx, &args);
+    let profile = sel.profile.clone();
+    let selected = layer::resolve(ctx, &profile, &sel.with, &sel.without)?;
 
     for l in &selected {
         if !l.supported() {
@@ -195,13 +274,13 @@ fn install(ctx: &Ctx, args: InstallArgs) -> Result<()> {
             );
         }
         println!("  open a new shell, or: exec zsh");
-        next_steps(ctx);
+        next_steps(ctx, &rerun_command(&sel, &args));
     }
     Ok(())
 }
 
-/// Print remaining setup steps, if any.
-fn next_steps(ctx: &Ctx) {
+/// Print remaining setup steps, if any. `rerun` repeats this install.
+fn next_steps(ctx: &Ctx, rerun: &str) {
     let mut steps: Vec<String> = Vec::new();
     let key = signing::ssh_key_path(ctx);
     let pubkey = signing::ssh_pub_key(ctx);
@@ -263,6 +342,13 @@ fn next_steps(ctx: &Ctx) {
 
     if ncu::config_missing(ctx) {
         steps.push("set up node-core-utils credentials:  dotfiles ncu".into());
+    }
+
+    // Usually private repos cloned before GitHub access existed.
+    if skills::clone_failed() {
+        steps.push(format!(
+            "some repos could not be cloned. Once GitHub access works, re-run:  {rerun}"
+        ));
     }
 
     if steps.is_empty() {
@@ -361,4 +447,51 @@ fn relink(ctx: &Ctx) -> Result<()> {
     }
     ui::detail("ssh and app configs are re-linked by `dotfiles install`");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn repeat_turns_recorded_layers_into_flags() {
+        let profile = strings(&["core", "mac-base", "mac-apps", "mac-langs"]);
+        let recorded = strings(&["core", "mac-base", "mac-apps", "work-harper", "gone"]);
+        let (with, without) = repeat(&profile, &recorded);
+        assert_eq!(
+            with,
+            strings(&["work-harper"]),
+            "unknown layers are dropped"
+        );
+        assert_eq!(without, strings(&["mac-langs"]));
+        assert_eq!(repeat(&profile, &profile), (vec![], vec![]));
+    }
+
+    #[test]
+    fn rerun_lists_the_flags_that_select_layers() {
+        let cli = Cli::parse_from([
+            "dotfiles",
+            "install",
+            "--with",
+            "work-harper",
+            "-y",
+            "--no-signing",
+        ]);
+        let Command::Install(args) = cli.command else {
+            panic!("expected install");
+        };
+        let sel = Selection {
+            profile: "mac-dev".into(),
+            with: args.with.clone(),
+            without: strings(&["mac-langs"]),
+        };
+        assert_eq!(
+            rerun_command(&sel, &args),
+            "dotfiles install --profile mac-dev --with work-harper --without mac-langs --no-signing"
+        );
+    }
 }

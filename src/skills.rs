@@ -8,6 +8,7 @@ use crate::sys::{self, Cmd};
 use crate::{claude, github, link, ui};
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Entry {
@@ -221,7 +222,9 @@ pub(crate) fn ensure_clone(ctx: &Ctx, owner: &str, name: &str) -> Result<Option<
     }
 
     ui::step(&format!("cloning {slug} into {}", ctx.pretty(&dest)));
-    if !first_success(ctx, &slug, &clone_attempts(&slug, &dest))? {
+    let attempts = clone_attempts(&slug, &dest);
+    let offer = || github::offer_setup(ctx, &slug);
+    if !first_success(ctx, &slug, &attempts, offer)? {
         return Ok(None);
     }
     // HTTPS clones, and gh clones by default, get HTTPS remotes. Match the ssh clones.
@@ -256,18 +259,38 @@ fn clone_attempts(slug: &str, dest: &Path) -> Vec<Cmd> {
     attempts
 }
 
+static CLONE_FAILED: AtomicBool = AtomicBool::new(false);
+
+/// Whether a clone failed during this run, for the "Next:" list.
+pub fn clone_failed() -> bool {
+    CLONE_FAILED.load(Ordering::Relaxed)
+}
+
 /// Run attempts in order until one succeeds. Capture their output so a failed
 /// clone prints one warning instead of every tool's errors. `--verbose` shows
-/// each attempt's output when all of them fail.
-fn first_success(ctx: &Ctx, slug: &str, attempts: &[Cmd]) -> Result<bool> {
+/// each attempt's output when all of them fail. The first attempt is
+/// anonymous; `before_private` runs once, after it fails.
+fn first_success(
+    ctx: &Ctx,
+    slug: &str,
+    attempts: &[Cmd],
+    before_private: impl FnOnce() -> Result<()>,
+) -> Result<bool> {
     let mut failed = Vec::new();
-    for cmd in attempts {
+    let mut before_private = Some(before_private);
+    for (i, cmd) in attempts.iter().enumerate() {
+        if i > 0 {
+            if let Some(f) = before_private.take() {
+                f()?;
+            }
+        }
         let out = cmd.capture()?;
         if out.ok {
             return Ok(true);
         }
         failed.push((cmd.display(), out.combined()));
     }
+    CLONE_FAILED.store(true, Ordering::Relaxed);
     let reason = failed
         .last()
         .and_then(|(_, out)| failure_reason(out))
@@ -619,16 +642,32 @@ mod tests {
             clone(&format!("file://{}", origin.display()), "a"),
             clone(&missing, "b"),
         ];
-        assert!(first_success(&ctx, "o/r", &attempts).unwrap());
+        let calls = std::cell::Cell::new(0);
+        let count = || {
+            calls.set(calls.get() + 1);
+            Ok(())
+        };
+        assert!(first_success(&ctx, "o/r", &attempts, count).unwrap());
         assert!(tmp.join("a/.git").is_dir());
         assert!(
             !tmp.join("b").exists(),
             "attempts after a success must not run"
         );
+        assert_eq!(
+            calls.get(),
+            1,
+            "setup is offered once, after the anonymous attempt"
+        );
 
         let attempts = [clone(&missing, "c"), clone(&missing, "c")];
-        assert!(!first_success(&ctx, "o/r", &attempts).unwrap());
+        assert!(!first_success(&ctx, "o/r", &attempts, || Ok(())).unwrap());
         assert!(!tmp.join("c").exists());
+        assert!(clone_failed());
+
+        // A public repo clones anonymously: no setup offer.
+        let attempts = [clone(&format!("file://{}", origin.display()), "d")];
+        let offered = || -> Result<()> { panic!("offered setup for a public repo") };
+        assert!(first_success(&ctx, "o/r", &attempts, offered).unwrap());
     }
 
     /// Support both top-level skills and skills/ layouts.
