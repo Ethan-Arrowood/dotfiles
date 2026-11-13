@@ -139,6 +139,23 @@ dotfiles ncu
 
 It sets your username from `gh`, then opens two pages. On GitHub, the new classic token already has `user:email` and `read:org` ticked and is named after the machine: pick an expiry, generate it, and paste it at the hidden prompt. On ci.nodejs.org, add an API token and paste that too. The config ends up at `~/.config/ncurc` (ncu reads `$XDG_CONFIG_HOME/ncurc`, which `.zshenv` sets), mode `0600`. An existing `~/.ncurc` moves there, with a link left at the old path for shells that don't set `XDG_CONFIG_HOME`. `dotfiles install` and `dotfiles doctor` point here while the config is missing.
 
+## macOS shortcuts
+
+`mac-base` applies [`Shortcuts.json`](layers/mac-base/Shortcuts.json), copied from a configured Mac. Apple doesn't document the ids. Names below come from community lists, or from what the binding does; the rest are marked unknown.
+
+| Ids | Shortcut | State |
+| --- | --- | --- |
+| 15, 17, 19, 21, 23, 25, 26 | Accessibility zoom: on/off, zoom in, zoom out, invert colors, image smoothing, increase and decrease contrast | Off |
+| 16, 18, 20, 22, 24 | Unknown, numbered among the zoom shortcuts | Off |
+| 38 | Mouse button 5 (a side button): Mission Control. Inferred: it's the only binding for that button | On |
+| 40 | Shift + mouse button 5. Unknown, probably Mission Control in slow motion | On |
+| 60, 61 | Previous and next input source (⌃Space, ⌃⌥Space) | Off |
+| 79, 80, 81, 82 | Move one Space left or right (⌃← and ⌃→), with their slow-motion variants | On |
+| 164 | F5 with no modifiers. Unknown | On |
+| 176 | Unknown | Off |
+
+To name an unknown id, toggle a shortcut in System Settings > Keyboard > Keyboard Shortcuts and see which entry changes in `defaults read com.apple.symbolichotkeys AppleSymbolicHotKeys`.
+
 ## Machine-local escape hatches
 
 | File | Purpose |
