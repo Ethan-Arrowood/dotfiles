@@ -46,8 +46,8 @@ dotfiles install --profile core --with mac-apps
 | `core` | any | zsh, git, ssh, commit signing, aliases, functions |
 | `mac-base` | macOS | Xcode CLT, Homebrew, CLI tools, macOS defaults, keyboard and mouse shortcuts, Dock, computer name |
 | `mac-langs` | macOS | Node (fnm, with one npm global prefix, `~/.npm-global`, shared by every version, and the globals in its [`Npmfile`](layers/mac-langs/Npmfile)), Rust (rustup), Python (uv), C/C++, Java |
-| `mac-apps` | macOS | Chrome, VS Code, Claude, Ghostty, Dashlane CLI |
-| `mac-apps-extra` | macOS | Slack, Zoom, Spotify, Discord, Podman, DaisyDisk |
+| `mac-apps` | macOS | Chrome, VS Code, Claude, Ghostty, Podman, Dashlane CLI |
+| `mac-apps-extra` | macOS | Slack, Zoom, Spotify, Discord, DaisyDisk |
 | `work-harper` | any | [dispatch](src/layers/work_harper.rs) client and Claude plugin, Harper aliases and skills. On macOS: Codex, Antigravity (`agy`), Cursor CLI (`cursor-agent`), gcloud, Tailscale, LastPass, GNU screen. Opt-in; no identity override |
 
 `core` needs no Homebrew, Node or GUI. It skips optional shell integrations when absent. Other layers' Brewfiles need Homebrew; `mac-base` installs it.

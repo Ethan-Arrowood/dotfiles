@@ -4,6 +4,7 @@ cask google-chrome
 cask visual-studio-code
 cask claude                     # Claude desktop app
 cask ghostty                    # terminal; config lives in config/ghostty/
+cask podman-desktop             # containers; shell/ aliases docker to podman
 
 # Use the Dashlane browser extension and CLI. The formula pulls Homebrew Node
 # through yarn for dcli; fnm takes precedence in interactive shells.
