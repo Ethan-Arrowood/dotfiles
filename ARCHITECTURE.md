@@ -151,6 +151,7 @@ When org links exist, the tool sets `pluginConfigs."cc-plugin-agents-md@builtin"
 | [`dock.rs`](src/dock.rs) | Paths with spaces, flags, plist paths, stray percent signs |
 | [`signing.rs`](src/signing.rs) | `.pub` appended, Git config quoting |
 | [`github.rs`](src/github.rs) | Key matches include type |
+| [`doctor.rs`](src/doctor.rs) | SSH key file loaded or not, forwarded agent keys with no key file, no credentials |
 | [`ctx.rs`](src/ctx.rs) | Recorded root survives shell quoting |
 | [`tmpdir.rs`](src/tmpdir.rs) | 0700 mode, exclusive creation, cleanup |
 

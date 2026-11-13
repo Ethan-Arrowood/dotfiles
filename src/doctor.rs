@@ -54,34 +54,43 @@ pub fn run(ctx: &Ctx) -> Result<bool> {
 
     // ssh
     let key = signing::ssh_key_path(ctx);
-    if key.exists() {
-        r.ok(&format!("ssh key {}", ctx.pretty(&key)));
-        let fp = Cmd::new("ssh-keygen")
-            .arg("-lf")
-            .arg(key.to_string_lossy())
-            .capture()
-            .ok()
-            .and_then(|c| c.stdout.split_whitespace().nth(1).map(String::from));
-        let loaded = fp
-            .as_ref()
-            .and_then(|f| {
-                Cmd::new("ssh-add")
-                    .arg("-l")
-                    .capture()
-                    .ok()
-                    .map(|c| c.stdout.contains(f.as_str()))
-            })
-            .unwrap_or(false);
-        if loaded {
+    let fingerprint = key
+        .exists()
+        .then(|| {
+            Cmd::new("ssh-keygen")
+                .arg("-lf")
+                .arg(key.to_string_lossy())
+                .capture()
+                .ok()
+                .and_then(|c| c.stdout.split_whitespace().nth(1).map(String::from))
+        })
+        .flatten();
+    // Fails with no agent or an empty one.
+    let agent_list = Cmd::new("ssh-add")
+        .arg("-l")
+        .capture()
+        .ok()
+        .filter(|c| c.ok)
+        .map(|c| c.stdout)
+        .unwrap_or_default();
+    let auth = ssh_auth(key.exists(), fingerprint.as_deref(), &agent_list);
+    match auth {
+        SshAuth::KeyLoaded => {
+            r.ok(&format!("ssh key {}", ctx.pretty(&key)));
             r.ok("ssh key loaded in the agent");
-        } else {
+        }
+        SshAuth::KeyNotLoaded => {
+            r.ok(&format!("ssh key {}", ctx.pretty(&key)));
             r.warn(&format!(
                 "ssh key is not in the agent. Run: ssh-add {}",
                 ctx.pretty(&key)
             ));
         }
-    } else {
-        r.warn(&format!("no ssh key at {}", ctx.pretty(&key)));
+        SshAuth::AgentOnly(n) => r.ok(&format!(
+            "no key file at {}, but the ssh agent has {n} key(s) (forwarded?)",
+            ctx.pretty(&key)
+        )),
+        SshAuth::None => r.warn(&format!("no ssh key at {}", ctx.pretty(&key))),
     }
 
     let ssh_config = ctx.home.join(".ssh/config");
@@ -94,7 +103,7 @@ pub fn run(ctx: &Ctx) -> Result<bool> {
         r.warn("~/.ssh/config does not include config.d/. Run: dotfiles install");
     }
 
-    if key.exists() {
+    if auth != SshAuth::None {
         let probe = Cmd::new("ssh")
             .args([
                 "-o",
@@ -196,4 +205,68 @@ pub fn run(ctx: &Ctx) -> Result<bool> {
 
 fn shellexpand_home(ctx: &Ctx, p: &str) -> String {
     ctx.expand(p).display().to_string()
+}
+
+/// Where ssh credentials come from.
+#[derive(Debug, PartialEq)]
+enum SshAuth {
+    KeyLoaded,
+    KeyNotLoaded,
+    /// No key file, but the agent lists keys: a forwarded agent in a
+    /// container, for example. Holds the number of keys.
+    AgentOnly(usize),
+    None,
+}
+
+/// `agent_list` is the output of a successful `ssh-add -l`, empty otherwise.
+fn ssh_auth(key_exists: bool, fingerprint: Option<&str>, agent_list: &str) -> SshAuth {
+    if key_exists {
+        match fingerprint {
+            Some(fp) if agent_list.contains(fp) => SshAuth::KeyLoaded,
+            _ => SshAuth::KeyNotLoaded,
+        }
+    } else {
+        match agent_list.lines().filter(|l| !l.trim().is_empty()).count() {
+            0 => SshAuth::None,
+            n => SshAuth::AgentOnly(n),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const LIST: &str = "256 SHA256:abc me@example.com (ED25519)\n";
+
+    #[test]
+    fn key_file_in_agent() {
+        assert_eq!(ssh_auth(true, Some("SHA256:abc"), LIST), SshAuth::KeyLoaded);
+    }
+
+    #[test]
+    fn key_file_not_in_agent() {
+        assert_eq!(
+            ssh_auth(true, Some("SHA256:xyz"), LIST),
+            SshAuth::KeyNotLoaded
+        );
+        assert_eq!(
+            ssh_auth(true, Some("SHA256:abc"), ""),
+            SshAuth::KeyNotLoaded
+        );
+        assert_eq!(ssh_auth(true, None, LIST), SshAuth::KeyNotLoaded);
+    }
+
+    #[test]
+    fn forwarded_agent_without_key_file() {
+        assert_eq!(ssh_auth(false, None, LIST), SshAuth::AgentOnly(1));
+        let two = format!("{LIST}256 SHA256:def other@example.com (ED25519)\n");
+        assert_eq!(ssh_auth(false, None, &two), SshAuth::AgentOnly(2));
+    }
+
+    #[test]
+    fn no_key_file_and_no_agent_keys() {
+        assert_eq!(ssh_auth(false, None, ""), SshAuth::None);
+        assert_eq!(ssh_auth(false, None, "\n"), SshAuth::None);
+    }
 }
