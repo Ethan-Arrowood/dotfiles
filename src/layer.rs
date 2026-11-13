@@ -71,7 +71,7 @@ pub fn registry() -> Vec<Layer> {
         Layer {
             name: "work-harper",
             description:
-                "Codex, agy, gcloud, Tailscale, dispatch, Harper aliases, LastPass. Opt-in.",
+                "Codex, agy, gcloud, Tailscale, screen, dispatch, Harper aliases, LastPass. Opt-in.",
             macos_only: false,
             install: layers::work_harper::install,
         },
