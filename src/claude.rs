@@ -3,6 +3,7 @@
 
 use crate::ctx::Ctx;
 use crate::hooks::{self, Agent};
+use crate::sys::Cmd;
 use crate::{link, ui};
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
@@ -127,7 +128,7 @@ fn remove_old_import(ctx: &Ctx, rule: &Path, claude_md: &Path) -> Result<()> {
 /// Built-in plugin controlling whether AGENTS.md loads beside CLAUDE.md.
 const AGENTS_MD_PLUGIN: &str = "cc-plugin-agents-md@builtin";
 const INSTRUCTION_FILES: &str = "instructionFiles";
-const BOTH: &str = "claude-md-and-agents-md";
+pub const BOTH: &str = "claude-md-and-agents-md";
 
 /// Set `pluginConfigs.<plugin>.options.<key>` only when absent.
 /// Return the existing value as an inner `Err` if it differs.
@@ -186,6 +187,53 @@ fn load_agents_md_beside_claude_md(ctx: &Ctx) -> Result<()> {
     )
 }
 
+/// Whether `link_org_rules` linked any org rule under `src_root`.
+pub fn has_org_rule_links(src_root: &Path) -> bool {
+    let orgs = Path::new("rules").join(ORGS);
+    entries(src_root).iter().any(|dir| {
+        std::fs::read_link(dir.join("AGENTS.md"))
+            .is_ok_and(|t| t.parent().is_some_and(|p| p.ends_with(&orgs)))
+    })
+}
+
+/// Claude Code's effective `instructionFiles` value.
+#[derive(Debug, PartialEq)]
+pub struct InstructionFiles {
+    pub value: String,
+    /// A settings file sets it, possibly to an invalid value.
+    pub configured: bool,
+}
+
+impl InstructionFiles {
+    pub fn loads_both(&self) -> bool {
+        self.value == BOTH
+    }
+}
+
+/// Ask Claude Code instead of reading settings.json. It accepts the plugin's
+/// old id and reports the default for an unset or invalid value.
+/// `None` if `claude` can't answer.
+pub fn instruction_files() -> Option<InstructionFiles> {
+    let out = Cmd::new("claude")
+        .args(["plugin", "configure", "--json", AGENTS_MD_PLUGIN])
+        .capture()
+        .ok()?;
+    if !out.ok {
+        return None;
+    }
+    parse_instruction_files(&out.stdout)
+}
+
+fn parse_instruction_files(json: &str) -> Option<InstructionFiles> {
+    let v: Value = serde_json::from_str(json).ok()?;
+    Some(InstructionFiles {
+        value: v["inputs"][INSTRUCTION_FILES].as_str()?.to_string(),
+        configured: v["configured"]
+            .as_array()
+            .is_some_and(|a| a.iter().any(|k| k == INSTRUCTION_FILES)),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,8 +270,10 @@ mod tests {
         .unwrap();
         fs::write(dev.join("mine/CLAUDE.md"), "my own notes\n").unwrap();
         fs::write(dev.join("theirs/AGENTS.md"), "hand-written").unwrap();
+        assert!(!has_org_rule_links(&dev));
 
         link_org_rules(&ctx, &orgs, &dev).unwrap();
+        assert!(has_org_rule_links(&dev));
 
         for org in ["abs", "tilde", "mine"] {
             assert_eq!(
@@ -262,5 +312,28 @@ mod tests {
         s["pluginConfigs"]["p@builtin"]["options"]["k"] = json!("mine");
         assert_eq!(set(&mut s), Err("\"mine\"".into()));
         assert_eq!(s["pluginConfigs"]["p@builtin"]["options"]["k"], "mine");
+    }
+
+    /// Shapes from `claude plugin configure --json` (Claude Code 2.1.325).
+    #[test]
+    fn instruction_files_read_from_plugin_configure() {
+        let parse = |inputs: &str, configured: &str| {
+            parse_instruction_files(&format!(
+                r#"{{"pluginId":"cc-plugin-agents-md@builtin","inputs":{{"instructionFiles":"{inputs}"}},"configured":{configured}}}"#
+            ))
+        };
+        let both = parse(BOTH, r#"["instructionFiles"]"#).unwrap();
+        assert!(both.configured && both.loads_both());
+        let unset = parse("claude-md-or-agents-md", "[]").unwrap();
+        assert!(!unset.configured && !unset.loads_both());
+        assert_eq!(
+            parse("claude-md", r#"["instructionFiles"]"#),
+            Some(InstructionFiles {
+                value: "claude-md".into(),
+                configured: true
+            })
+        );
+        assert_eq!(parse_instruction_files(r#"{"inputs":{}}"#), None);
+        assert_eq!(parse_instruction_files("Unknown plugin"), None);
     }
 }

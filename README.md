@@ -60,7 +60,7 @@ dotfiles install --profile core --with mac-apps
 | `dotfiles list` | List profiles and layers |
 | `dotfiles status` | Show recorded layers and dotfile links |
 | `dotfiles link` | Re-link `home/` files and reapply Skillfiles, without packages. Use `dotfiles install` for SSH and app links |
-| `dotfiles doctor` | Check tools, SSH, signing and broken links |
+| `dotfiles doctor` | Check tools, SSH, signing, broken links and the Claude Code setting org rules need |
 | `dotfiles github` | Register and verify SSH authentication and signing keys |
 | `dotfiles ncu` | Set up this machine's node-core-utils tokens |
 
