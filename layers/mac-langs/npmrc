@@ -1,0 +1,11 @@
+# Merged into ~/.npmrc by mac-langs, key by key. Other lines there, such as
+# the registry auth token npm writes on login, are left alone.
+
+init-license=MIT
+init-author-name=Ethan Arrowood
+init-author-email=ethan@arrowood.dev
+fund=false
+
+# One global prefix for every fnm Node version, so global CLIs survive
+# upgrades. 10-node.sh puts its bin/ on PATH after fnm's.
+prefix=~/.npm-global

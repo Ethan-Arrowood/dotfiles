@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# Editors
+# Ignore contents, not the directory, so negations below can apply.
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Agent / tooling scratch
+.claude/
+.aider*
+
+# Environment
+.env.local
+.direnv/
+
+# node-core-utils config and working directory; both can hold tokens
+.ncurc
+.ncurc.gpg
+.ncu

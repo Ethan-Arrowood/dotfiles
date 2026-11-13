@@ -1,0 +1,278 @@
+//! Register the same SSH key as authentication and signing keys.
+//! Authentication needs `admin:public_key`; signing needs `admin:ssh_signing_key`.
+
+use crate::ctx::Ctx;
+use crate::signing;
+use crate::sys::{self, Cmd};
+use crate::tmpdir::PrivateTempDir;
+use crate::ui;
+use anyhow::{bail, Result};
+
+fn gh_authenticated() -> bool {
+    Cmd::new("gh")
+        .args(["auth", "status"])
+        .capture()
+        .map(|c| c.ok)
+        .unwrap_or(false)
+}
+
+fn key_title() -> String {
+    std::env::var("DOTFILES_KEY_TITLE").unwrap_or_else(|_| sys::hostname_short())
+}
+
+/// Ensure the token carries a scope, refreshing if not.
+fn ensure_scope(ctx: &Ctx, want: &str) -> bool {
+    let status = match Cmd::new("gh").args(["auth", "status"]).capture() {
+        Ok(c) => c.combined(),
+        Err(_) => return false,
+    };
+    let have: Vec<String> = status
+        .lines()
+        .find_map(|l| l.split("Token scopes:").nth(1))
+        .map(|s| {
+            s.split(',')
+                .map(|t| t.trim().trim_matches('\'').to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    if have.iter().any(|s| s == want) {
+        return true;
+    }
+    ui::warn(&format!("your gh token is missing the '{want}' scope"));
+    if !ui::confirm(
+        &format!("Refresh the token to add '{want}'? (opens a browser)"),
+        ctx.assume_yes,
+    ) {
+        return false;
+    }
+    Cmd::new("gh")
+        .args(["auth", "refresh", "-h", "github.com", "-s", want])
+        .run(ctx, &format!("gh auth refresh -s {want}"))
+        .unwrap_or(false)
+}
+
+/// Check registration by key type. `None` means unknown, not absent.
+/// Without the signing scope, gh lists auth keys and exits 0 with a stderr warning.
+pub(crate) fn registered(pubkey_body: &str, kind: Option<&str>) -> Option<bool> {
+    let out = Cmd::new("gh").args(["ssh-key", "list"]).capture().ok()?;
+    if !out.ok {
+        return None;
+    }
+    let kind = kind.unwrap_or("authentication");
+    if kind == "signing" && out.stderr.contains("ssh_signing_key") {
+        return None;
+    }
+    Some(listed(&out.stdout, pubkey_body, kind))
+}
+
+fn listed(stdout: &str, pubkey_body: &str, kind: &str) -> bool {
+    stdout
+        .lines()
+        .any(|l| l.contains(pubkey_body) && l.rsplit('\t').next() == Some(kind))
+}
+
+pub fn run(ctx: &Ctx) -> Result<()> {
+    ui::head("GitHub key setup");
+    // Inherited gh credentials can reach the real account even with a sandboxed $HOME.
+    if !sys::allow_global_changes() {
+        return Ok(());
+    }
+    if !sys::has("gh") {
+        bail!("gh is not installed (brew install gh)");
+    }
+    if !gh_authenticated() {
+        ui::warn("gh is not authenticated");
+        if !ui::confirm("Run 'gh auth login' now?", ctx.assume_yes) {
+            bail!("gh auth login is required first");
+        }
+        if !Cmd::new("gh")
+            .args(["auth", "login"])
+            .run(ctx, "gh auth login")?
+        {
+            bail!("gh auth login failed");
+        }
+    }
+    let who = Cmd::new("gh")
+        .args(["api", "user", "--jq", ".login"])
+        .capture()
+        .map(|c| c.trimmed().to_string())
+        .unwrap_or_else(|_| "?".into());
+    ui::ok(&format!("authenticated as {who}"));
+
+    let key = signing::ssh_key_path(ctx);
+    let pub_path = signing::ssh_pub_path(ctx);
+    if !pub_path.exists() {
+        bail!("no ssh key at {}. Run: dotfiles install", ctx.pretty(&key));
+    }
+    let Some(pubkey) = signing::ssh_pub_key(ctx) else {
+        bail!("could not read {}", ctx.pretty(&pub_path));
+    };
+    let body = pubkey
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or_default()
+        .to_string();
+
+    ui::head(&format!("SSH key: {}", ctx.pretty(&key)));
+    add_ssh(ctx, &pub_path, &body, None, &key_title())?;
+
+    // Only offer the signing upload when git actually signs with ssh.
+    let format = Cmd::new("git")
+        .args(["config", "--global", "--includes", "gpg.format"])
+        .capture()
+        .map(|c| c.trimmed().to_string())
+        .unwrap_or_default();
+    if format == "ssh" {
+        add_ssh(
+            ctx,
+            &pub_path,
+            &body,
+            Some("signing"),
+            &format!("{} (signing)", key_title()),
+        )?;
+    } else {
+        ui::skip("git is not set to sign with ssh. Run `dotfiles install` first");
+    }
+
+    verify(ctx);
+    Ok(())
+}
+
+fn add_ssh(
+    ctx: &Ctx,
+    pub_path: &std::path::Path,
+    body: &str,
+    kind: Option<&str>,
+    title: &str,
+) -> Result<()> {
+    let label = kind.unwrap_or("authentication");
+    match registered(body, kind) {
+        Some(true) => {
+            ui::skip(&format!("ssh {label} key already on github"));
+            return Ok(());
+        }
+        Some(false) => {}
+        None => ui::warn(&format!(
+            "cannot list {label} keys (missing scope?); will ask before uploading"
+        )),
+    }
+
+    let scope = match kind {
+        Some("signing") => "admin:ssh_signing_key",
+        _ => "admin:public_key",
+    };
+    if !ensure_scope(ctx, scope) {
+        ui::warn(&format!("skipping {label} key upload"));
+        return Ok(());
+    }
+    // Re-check now that the scope may have been granted.
+    if registered(body, kind) == Some(true) {
+        ui::skip(&format!("ssh {label} key already on github"));
+        return Ok(());
+    }
+
+    let question = match kind {
+        Some("signing") => "Upload the same key as a signing key too?".to_string(),
+        _ => format!("Upload {} as an authentication key?", ctx.pretty(pub_path)),
+    };
+    if !ui::confirm(&question, ctx.assume_yes) {
+        ui::skip("declined");
+        return Ok(());
+    }
+
+    let mut cmd = Cmd::new("gh")
+        .args(["ssh-key", "add"])
+        .arg(pub_path.to_string_lossy());
+    if let Some(k) = kind {
+        cmd = cmd.args(["--type", k]);
+    }
+    cmd = cmd.args(["--title", title]);
+    if cmd.run(ctx, &format!("gh ssh-key add ({label})"))? {
+        ui::ok(&format!("uploaded ssh {label} key"));
+    } else {
+        ui::warn(&format!("ssh {label} key upload failed"));
+    }
+    Ok(())
+}
+
+fn verify(ctx: &Ctx) {
+    ui::head("Verifying");
+
+    let probe = Cmd::new("ssh")
+        .args([
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
+            "-T",
+            "git@github.com",
+        ])
+        .capture()
+        .map(|c| c.combined())
+        .unwrap_or_default();
+    if probe.contains("successfully authenticated") {
+        let who = probe
+            .lines()
+            .find_map(|l| l.strip_prefix("Hi "))
+            .and_then(|l| l.split('!').next())
+            .unwrap_or("?");
+        ui::ok(&format!("ssh: {who} authenticated"));
+    } else if probe.contains("Permission denied") {
+        ui::error("ssh: github rejected the key");
+    } else {
+        ui::warn(&format!(
+            "ssh: inconclusive ({})",
+            probe.lines().next().unwrap_or("")
+        ));
+    }
+
+    // Verify signing with a temporary commit. Exclusive directory creation prevents
+    // a planted symlink from directing it into a real repo.
+    let Ok(probe) = PrivateTempDir::new("signprobe") else {
+        ui::warn("could not create a temporary directory for the signing probe");
+        return;
+    };
+    let tmp = probe.join("repo");
+    let _ = std::fs::create_dir(&tmp);
+    let git = |args: &[&str]| {
+        Cmd::new("git")
+            .args(["-C", &tmp.to_string_lossy()])
+            .args(args.iter().copied())
+            .capture()
+    };
+    let _ = git(&["init", "-q"]);
+    let _ = git(&["commit", "-q", "--allow-empty", "-m", "signing probe"]);
+    let sig = git(&["log", "-1", "--format=%G?"])
+        .map(|c| c.trimmed().to_string())
+        .unwrap_or_default();
+    match sig.as_str() {
+        "G" => {
+            let signer = git(&["log", "-1", "--format=%GS"])
+                .map(|c| c.trimmed().to_string())
+                .unwrap_or_default();
+            ui::ok(&format!(
+                "commit signing works and verifies locally ({signer})"
+            ));
+        }
+        "U" => ui::warn("commits are signed but the key is untrusted locally"),
+        "N" => ui::warn("commits are NOT signed. Run: dotfiles install"),
+        other => ui::warn(&format!("could not determine signing status ({other})")),
+    }
+    let _ = ctx;
+    println!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn listed_matches_the_key_and_its_type() {
+        let out = "Laptop\t1\tssh-ed25519 AAAA\t2026-01-01\tauthentication\n\
+                   Laptop (signing)\t2\tssh-ed25519 BBBB\t2026-01-01\tsigning\n";
+        assert!(listed(out, "AAAA", "authentication"));
+        assert!(!listed(out, "AAAA", "signing"));
+        assert!(listed(out, "BBBB", "signing"));
+        assert!(!listed(out, "BBBB", "authentication"));
+    }
+}

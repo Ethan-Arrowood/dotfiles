@@ -1,0 +1,87 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+  # Test core in a bare container.
+  core-on-linux:
+    runs-on: ubuntu-latest
+    container: debian:bookworm-slim
+    env:
+      # Allow installs despite /github/home differing from the account home.
+      # The guard test unsets this override.
+      DOTFILES_ALLOW_SANDBOXED_HOME: "1"
+    steps:
+      - name: install prerequisites
+        run: apt-get update -qq && apt-get install -y -qq git curl build-essential
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+      - name: install the core profile
+        run: |
+          export DOTFILES_ROOT="$PWD"
+          ./target/release/dotfiles install --profile core --no-signing -y
+      - name: core installed what it claims
+        run: |
+          # Packages, from the install itself rather than by hand.
+          command -v zsh && command -v ssh-keygen
+          # Check SSH parses and applies settings. It expands ~ from passwd (/root),
+          # so substitute $HOME explicitly.
+          sed "s#~/#$HOME/#" ~/.ssh/config > /tmp/ssh_config
+          ssh -F /tmp/ssh_config -G github.com | grep -qx 'user git'
+          ssh -F /tmp/ssh_config -G example.com | grep -qx 'serveraliveinterval 60'
+          # Rules and the sync hook from Ethan-Arrowood/agentic.
+          test -L ~/.claude/rules/git.md
+          grep -q 'agents/claude/sync.sh' ~/.claude/settings.json
+      - name: the generated init must load in both shells
+        run: |
+          zsh -i -c 'echo "layers=$DOTFILES_LAYERS"; [[ -o autocd ]] || { echo "setopt did not stick"; exit 1; }'
+          bash -c 'source ~/.config/dotfiles/init.sh && alias gs >/dev/null || exit 1'
+      - name: second run must be idempotent
+        run: |
+          export DOTFILES_ROOT="$PWD"
+          # Capture BOTH streams: the backup marker goes to stderr.
+          ./target/release/dotfiles install --profile core --no-signing -y >/tmp/second.log 2>&1
+          cat /tmp/second.log
+          grep -q "already linked" /tmp/second.log
+          # Reject change markers. An unchanged run prints skip.
+          if grep -E "^ *ok |backed up existing|installing:" /tmp/second.log; then
+            echo "second run modified state; not idempotent" >&2
+            exit 1
+          fi
+      - name: the sandbox guard must block machine-global changes
+        run: |
+          export DOTFILES_ROOT="$PWD"
+          mkdir -p /tmp/fakehome
+          # A sandboxed $HOME must stop package installs.
+          env -u DOTFILES_ALLOW_SANDBOXED_HOME HOME=/tmp/fakehome \
+            ./target/release/dotfiles install --profile core -y >/tmp/guard.log 2>&1
+          cat /tmp/guard.log
+          grep -q "skipping machine-global changes" /tmp/guard.log
+
+      - name: ssh signing must produce a verifiable commit
+        run: |
+          export DOTFILES_ROOT="$PWD"
+          ssh-keygen -q -t ed25519 -N "" -C "ci@example.invalid" -f ~/.ssh/id_ed25519
+          ./target/release/dotfiles install --profile core -y
+          mkdir -p /tmp/r && cd /tmp/r && git init -q
+          git commit -q --allow-empty -m "signing probe"
+          test "$(git log -1 --format=%G?)" = "G"

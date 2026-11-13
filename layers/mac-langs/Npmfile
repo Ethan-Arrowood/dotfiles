@@ -1,0 +1,4 @@
+# Global npm packages, one per line, installed into the shared prefix
+# (~/.npm-global) under fnm's default Node when missing.
+
+@node-core/utils    # ncu-ci and git-node, for Node.js core work
