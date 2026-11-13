@@ -183,7 +183,7 @@ Git pushes `https://github.com/` URLs over SSH (`pushInsteadOf`). Clones and fet
 dotfiles github
 ```
 
-The command handles `gh auth login`, missing token scopes and uploads, asking before account changes. It checks SSH authentication and makes a signed commit in a temporary repo to verify local signing. Once SSH works, it moves this repo's HTTPS `origin` to SSH and fetches the full history that `install.sh`'s shallow clone left out.
+The command handles `gh auth login`, missing token scopes and uploads, asking before account changes. It checks SSH authentication and makes a signed commit in a temporary repo to verify local signing. Once SSH works, it moves this repo's HTTPS `origin` to SSH. It also fetches the history and branches that `install.sh`'s shallow, single-branch clone left out.
 
 | Key type | Purpose | Token scope |
 | --- | --- | --- |

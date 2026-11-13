@@ -144,30 +144,52 @@ pub fn run(ctx: &Ctx) -> Result<()> {
 }
 
 /// install.sh clones this repo shallow over HTTPS, before any key exists.
-/// Once ssh works, switch its origin to ssh and fetch the full history.
+/// Once ssh works, switch its origin to ssh and fetch everything.
 fn own_checkout(ctx: &Ctx) -> Result<()> {
     if !ctx.root.join(".git").exists() {
         return Ok(());
     }
     use_ssh_origin(ctx, &ctx.root, None, || true)?;
-    unshallow(ctx, &ctx.root)?;
+    full_clone(ctx, &ctx.root)?;
     Ok(())
 }
 
-fn unshallow(ctx: &Ctx, dir: &Path) -> Result<()> {
+/// A `--depth` clone is shallow and tracks one branch. Fetch the full history
+/// and track every branch of origin.
+fn full_clone(ctx: &Ctx, dir: &Path) -> Result<()> {
     let git = || Cmd::new("git").args(["-C", &dir.to_string_lossy()]);
+    let where_ = ctx.pretty(dir);
     let shallow = git()
         .args(["rev-parse", "--is-shallow-repository"])
         .capture()?;
-    if !shallow.ok || shallow.trimmed() != "true" {
+    let shallow = shallow.ok && shallow.trimmed() == "true";
+    let refspecs = git()
+        .args(["config", "--get-all", "remote.origin.fetch"])
+        .capture()?;
+    // Without a wildcard, origin's fetch refspec names single branches.
+    let narrow = refspecs.ok && !refspecs.stdout.contains('*');
+    if !shallow && !narrow {
         return Ok(());
     }
-    let desc = format!("fetching the full history of {}", ctx.pretty(dir));
-    if !git()
-        .args(["fetch", "--quiet", "--unshallow", "origin"])
-        .run(ctx, &desc)?
+    if narrow
+        && !git()
+            .args(["remote", "set-branches", "origin", "*"])
+            .run(ctx, &format!("tracking every branch of origin in {where_}"))?
     {
-        ui::warn(&format!("could not unshallow {}", ctx.pretty(dir)));
+        ui::warn(&format!(
+            "could not widen origin's fetch refspec in {where_}"
+        ));
+        return Ok(());
+    }
+    let mut fetch = git().args(["fetch", "--quiet"]);
+    let desc = if shallow {
+        fetch = fetch.arg("--unshallow");
+        format!("fetching the full history of {where_}")
+    } else {
+        format!("fetching every branch of {where_}")
+    };
+    if !fetch.arg("origin").run(ctx, &desc)? {
+        ui::warn(&format!("could not fetch from origin in {where_}"));
     }
     Ok(())
 }
@@ -467,32 +489,42 @@ mod tests {
         use_ssh_origin(&ctx, &repo, slug, || panic!("probed ssh")).unwrap();
     }
 
+    /// Like install.sh's `--depth 1` clone, and a plain `--single-branch` one.
     #[test]
-    fn a_shallow_clone_is_unshallowed() {
-        let tmp = PrivateTempDir::new("unshallow").unwrap();
+    fn narrow_clones_get_full_history_and_every_branch() {
+        let tmp = PrivateTempDir::new("fullclone").unwrap();
         let src = tmp.join("src");
         std::fs::create_dir(&src).unwrap();
-        git(&src, &["init", "-q"]);
+        git(&src, &["init", "-q", "-b", "main"]);
         for m in ["one", "two"] {
             git(&src, &["commit", "-q", "--allow-empty", "-m", m]);
         }
-        let shallow = tmp.join("shallow");
+        git(&src, &["branch", "other"]);
         let url = format!("file://{}", src.display());
-        git(
-            tmp.path(),
-            &["clone", "-q", "--depth", "1", &url, "shallow"],
-        );
-        assert_eq!(
-            git(&shallow, &["rev-parse", "--is-shallow-repository"]),
-            "true"
-        );
-
         let ctx = Ctx::new(tmp.path().to_path_buf()).unwrap();
-        unshallow(&ctx, &shallow).unwrap();
-        assert_eq!(
-            git(&shallow, &["rev-parse", "--is-shallow-repository"]),
-            "false"
-        );
-        assert_eq!(git(&shallow, &["rev-list", "--count", "HEAD"]), "2");
+        let all = "+refs/heads/*:refs/remotes/origin/*";
+
+        for (name, flag) in [("depth", "--depth=1"), ("single", "--single-branch")] {
+            git(tmp.path(), &["clone", "-q", flag, &url, name]);
+            let dir = tmp.join(name);
+            let refspec = || git(&dir, &["config", "--get-all", "remote.origin.fetch"]);
+            assert!(!refspec().contains('*'), "{name}");
+
+            full_clone(&ctx, &dir).unwrap();
+            assert_eq!(
+                git(&dir, &["rev-parse", "--is-shallow-repository"]),
+                "false"
+            );
+            assert_eq!(git(&dir, &["rev-list", "--count", "HEAD"]), "2");
+            assert_eq!(refspec(), all, "{name}");
+            git(
+                &dir,
+                &["rev-parse", "--verify", "-q", "refs/remotes/origin/other"],
+            );
+
+            // Already full: a second run changes nothing.
+            full_clone(&ctx, &dir).unwrap();
+            assert_eq!(refspec(), all, "{name}");
+        }
     }
 }
