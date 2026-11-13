@@ -44,7 +44,7 @@ dotfiles install --profile core --with mac-apps
 | Layer | Platform | Contents |
 | --- | --- | --- |
 | `core` | any | zsh, git, ssh, commit signing, aliases, functions |
-| `mac-base` | macOS | Xcode CLT, Homebrew, CLI tools, macOS defaults, Dock, computer name |
+| `mac-base` | macOS | Xcode CLT, Homebrew, CLI tools, macOS defaults, keyboard and mouse shortcuts, Dock, computer name |
 | `mac-langs` | macOS | Node (fnm), Rust (rustup), Python (uv), C/C++, Java |
 | `mac-apps` | macOS | Chrome, VS Code, Claude, Ghostty, Dashlane CLI |
 | `mac-apps-extra` | macOS | Slack, Zoom, Spotify, Discord, Podman, DaisyDisk |

@@ -25,7 +25,7 @@ com.apple.driver.AppleBluetoothMultitouch.trackpad  TrackpadThreeFingerDrag  -bo
 com.apple.driver.AppleBluetoothMultitouch.trackpad  TrackpadRightClick       -bool  true
 
 # Pointer speed (0-3) and scroll direction
-NSGlobalDomain  com.apple.trackpad.scaling              -float  1
+NSGlobalDomain  com.apple.trackpad.scaling              -float  2
 NSGlobalDomain  com.apple.mouse.scaling                 -float  3
 NSGlobalDomain  com.apple.swipescrolldirection          -bool   false   # natural scrolling off
 

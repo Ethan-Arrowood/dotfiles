@@ -14,6 +14,7 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
     brew::bundle(ctx, &layer.path(ctx).join("Brewfile"))?;
     ui::step("applying macOS defaults");
     macos_defaults(ctx, layer)?;
+    shortcuts(ctx, layer)?;
     git_delta(ctx)?;
     computer_name(ctx)?;
     Ok(())
@@ -43,6 +44,110 @@ fn xcode_clt(ctx: &Ctx) -> Result<()> {
         "install the Command Line Tools in the window that opened, then re-run `dotfiles install`",
     );
     Ok(())
+}
+
+const HOTKEYS_DOMAIN: &str = "com.apple.symbolichotkeys";
+const HOTKEYS_KEY: &str = "AppleSymbolicHotKeys";
+
+/// Apply `Shortcuts.json`: entries of `com.apple.symbolichotkeys`, keyed by
+/// macOS's shortcut id. Each entry is merged with `-dict-add`, so ids the file
+/// doesn't name keep this machine's value. macOS stores only shortcuts that
+/// differ from its defaults, so exporting that dict captures your changes.
+fn shortcuts(ctx: &Ctx, layer: &Layer) -> Result<()> {
+    let path = layer.path(ctx).join("Shortcuts.json");
+    if !path.is_file() {
+        return Ok(());
+    }
+    if !ctx.dry_run && !sys::allow_global_changes() {
+        return Ok(());
+    }
+    let text =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    let want: serde_json::Map<String, serde_json::Value> = match serde_json::from_str(&text) {
+        Ok(serde_json::Value::Object(m)) => m,
+        _ => {
+            ui::warn("Shortcuts.json is not a JSON object of shortcut ids; skipping it");
+            return Ok(());
+        }
+    };
+    let have = current_hotkeys();
+    let mut changed = 0;
+    for (id, entry) in &want {
+        if have.get(id) == Some(entry) {
+            continue;
+        }
+        changed += 1;
+        Cmd::new("defaults")
+            .args(["write", HOTKEYS_DOMAIN, HOTKEYS_KEY, "-dict-add", id])
+            .arg(plist_xml(entry))
+            .run(ctx, &format!("set keyboard/mouse shortcut {id}"))?;
+    }
+    if changed == 0 {
+        ui::skip("shortcuts already set");
+        return Ok(());
+    }
+    if !ctx.dry_run {
+        // Makes the change live without logging out.
+        let _ = Cmd::new(
+            "/System/Library/PrivateFrameworks/SystemAdministration.framework/Resources/activateSettings",
+        )
+        .arg("-u")
+        .capture();
+        ui::ok(&format!("{changed} shortcut(s) changed"));
+    }
+    Ok(())
+}
+
+/// This machine's shortcut entries, as JSON. Empty when none are set.
+fn current_hotkeys() -> serde_json::Map<String, serde_json::Value> {
+    let Ok(plist) = Cmd::new("defaults")
+        .args(["export", HOTKEYS_DOMAIN, "-"])
+        .capture()
+    else {
+        return Default::default();
+    };
+    let tmp = std::env::temp_dir().join(format!("dotfiles-hotkeys-{}.plist", std::process::id()));
+    if std::fs::write(&tmp, &plist.stdout).is_err() {
+        return Default::default();
+    }
+    let json = Cmd::new("plutil")
+        .args(["-extract", HOTKEYS_KEY, "json", "-o", "-"])
+        .arg(tmp.to_string_lossy())
+        .capture();
+    let _ = std::fs::remove_file(&tmp);
+    match json.ok().and_then(|c| serde_json::from_str(&c.stdout).ok()) {
+        Some(serde_json::Value::Object(m)) => m,
+        _ => Default::default(),
+    }
+}
+
+/// A JSON value as the XML plist fragment `defaults write` accepts, which
+/// keeps booleans and integers typed (an old-style plist string would not).
+fn plist_xml(v: &serde_json::Value) -> String {
+    use serde_json::Value;
+    let esc = |s: &str| {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+    };
+    match v {
+        Value::Null => "<string></string>".into(),
+        Value::Bool(true) => "<true/>".into(),
+        Value::Bool(false) => "<false/>".into(),
+        Value::Number(n) if n.is_i64() || n.is_u64() => format!("<integer>{n}</integer>"),
+        Value::Number(n) => format!("<real>{n}</real>"),
+        Value::String(s) => format!("<string>{}</string>", esc(s)),
+        Value::Array(a) => format!(
+            "<array>{}</array>",
+            a.iter().map(plist_xml).collect::<String>()
+        ),
+        Value::Object(m) => format!(
+            "<dict>{}</dict>",
+            m.iter()
+                .map(|(k, v)| format!("<key>{}</key>{}", esc(k), plist_xml(v)))
+                .collect::<String>()
+        ),
+    }
 }
 
 /// One line of the Defaultsfile.
@@ -288,6 +393,37 @@ fn prompt_line(question: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plist_xml_keeps_types() {
+        let v: serde_json::Value = serde_json::from_str(
+            r#"{"enabled":true,"value":{"parameters":[16,16,0],"type":"button"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            plist_xml(&v),
+            "<dict><key>enabled</key><true/><key>value</key><dict><key>parameters</key>\
+             <array><integer>16</integer><integer>16</integer><integer>0</integer></array>\
+             <key>type</key><string>button</string></dict></dict>"
+        );
+    }
+
+    /// The shipped file must be an object of shortcut entries keyed by id.
+    #[test]
+    fn shipped_shortcuts_parse() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/layers/mac-base/Shortcuts.json"
+        );
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let m = v.as_object().expect("an object");
+        assert!(!m.is_empty());
+        for (id, entry) in m {
+            assert!(id.parse::<u32>().is_ok(), "id {id}");
+            assert!(entry.get("enabled").is_some_and(|e| e.is_boolean()), "{id}");
+        }
+    }
 
     #[test]
     fn the_shipped_defaultsfile_parses_cleanly() {

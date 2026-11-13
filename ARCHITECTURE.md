@@ -33,6 +33,7 @@ Layers opt in by shipping files. `home/` and `Skillfile` processing runs for eve
 | `Brewfile` | [`brew.rs`](src/brew.rs): `formula <name>`, `cask <name>`, `tap <name>`, one per line with `#` comments. Taps run first. Report malformed lines with line numbers; warn and continue on failed casks |
 | `Skillfile` | [`skills.rs`](src/skills.rs): [syntax](README.md#skills). Find `SKILL.md` at depths 1 and 2; stop descending inside a skill. Track claimed names across layers |
 | `Defaultsfile` | [`mac_base.rs`](src/layers/mac_base.rs): `domain key type value`. Report malformed lines with line numbers. Write only changed keys |
+| `Shortcuts.json` | [`mac_base.rs`](src/layers/mac_base.rs): `com.apple.symbolichotkeys` entries keyed by shortcut id, such as mouse button 5 for Mission Control. Each entry is merged with `defaults write -dict-add` only when it differs; other ids keep the machine's value. Refresh it from a configured Mac with `defaults export com.apple.symbolichotkeys - \| plutil -extract AppleSymbolicHotKeys json -o - -` |
 | `Dockfile` | [`dock.rs`](src/dock.rs): one path per line, optionally followed by `dockutil` flags. Combine in layer order, skip absent paths, apply after apps install |
 
 The Dock stays unchanged when its paths match and its flags match `~/.config/dotfiles/dock.applied`. The plist's numeric settings do not map directly to `dockutil` flags, so the tool records the last successful specification.
@@ -93,7 +94,7 @@ Relative backup paths prevent same-basename collisions such as `~/.ssh/config` a
 [`sys::allow_global_changes()`](src/sys.rs) guards CLI operations that can escape `$HOME`:
 
 1. Packages and external installers: [`brew.rs`](src/brew.rs), [`mac_langs.rs`](src/layers/mac_langs.rs), [`mac_apps.rs`](src/layers/mac_apps.rs), and `sys_install`. The latter guards internally because it can escalate to root.
-2. macOS state: defaults, computer names and Xcode CLT installation in [`mac_base.rs`](src/layers/mac_base.rs), the [Dock](src/dock.rs), and [Chrome policies](src/layers/mac_apps.rs).
+2. macOS state: defaults, shortcuts, computer names and Xcode CLT installation in [`mac_base.rs`](src/layers/mac_base.rs), the [Dock](src/dock.rs), and [Chrome policies](src/layers/mac_apps.rs).
 3. Account and agent state: `chsh` and `ssh-add --apple-use-keychain` in [`core.rs`](src/layers/core.rs), [GitHub uploads](src/github.rs), and the [dispatch plugin](src/layers/work_harper.rs). `ssh-add` can write the real login Keychain.
 
 The guard compares canonical `$HOME` and account-home paths from `getent` or `dscl`. A mismatch or failed lookup blocks global changes. Only `DOTFILES_ALLOW_SANDBOXED_HOME=1` overrides it. CI checks that it fires.
@@ -139,7 +140,7 @@ When org links exist, the tool sets `pluginConfigs."cc-plugin-agents-md@builtin"
 | [`hooks.rs`](src/hooks.rs) | Existing hooks and key order preserved, idempotence, aliases, malformed shapes, Codex `startup` matcher |
 | [`claude.rs`](src/claude.rs) | Org links only in existing directories, old imports backed up, user files and plugin choices preserved |
 | [`layer.rs`](src/layer.rs) | Unique names, asset directories, mandatory `core`, README struct example |
-| [`mac_base.rs`](src/layers/mac_base.rs) | Shipped Defaultsfile, comments, malformed lines |
+| [`mac_base.rs`](src/layers/mac_base.rs) | Shipped Defaultsfile and Shortcuts.json, comments, malformed lines, typed plist values |
 | [`dock.rs`](src/dock.rs) | Paths with spaces, flags, plist paths, stray percent signs |
 | [`signing.rs`](src/signing.rs) | `.pub` appended, Git config quoting |
 | [`github.rs`](src/github.rs) | Key matches include type |
