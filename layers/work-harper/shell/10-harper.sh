@@ -1,8 +1,9 @@
 # Harper dev servers. Set HARPER_DEV_ROOT in ~/.zshenv.local to override
-# ~/dev/harperfast; ~/.zshrc.local loads after alias definitions.
+# $DOTFILES_SRC_DIR/harperfast (default ~/dev/harperfast); ~/.zshrc.local loads
+# after alias definitions.
 # Credentials below are throwaway values for local instances.
 
-HARPER_DEV_ROOT="${HARPER_DEV_ROOT:-$HOME/dev/harperfast}"
+HARPER_DEV_ROOT="${HARPER_DEV_ROOT:-${DOTFILES_SRC_DIR:-$HOME/dev}/harperfast}"
 
 alias harper="node $HARPER_DEV_ROOT/harper/dist/bin/harper.js"
 # Expand HOME at call time and reject empty values to avoid deleting /harper.
