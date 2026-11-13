@@ -74,7 +74,8 @@ Other changes:
 - `~/.ssh/allowed_signers`: [`signing.rs`](src/signing.rs) appends a missing key by rewriting the file, without a backup. It leaves unreadable files alone.
 - `<src_root>/<org>/CLAUDE.md`: [`claude.rs`](src/claude.rs) backs up an old one-line org import only when an `AGENTS.md` link replaces it. Other content stays.
 - `~/.claude/settings.json`, `~/.codex/hooks.json`: [`hooks.rs`](src/hooks.rs) merges missing entries, preserves key order, backs up once per run and writes atomically. Parse errors or wrong value shapes warn without changing the file. Writes preserve permissions and follow existing symlinks to their targets.
-- Repos: [`skills.rs`](src/skills.rs) clones Skillfile repos under `$DOTFILES_SRC_DIR` (default `~/dev`). [`work_harper.rs`](src/layers/work_harper.rs) also clones dispatch there. Neither pulls existing checkouts.
+- Repos: [`skills.rs`](src/skills.rs) clones Skillfile repos under `$DOTFILES_SRC_DIR` (default `~/dev`). [`work_harper.rs`](src/layers/work_harper.rs) also clones dispatch there. Neither pulls existing checkouts. Both set an HTTPS `origin` that names the same repo to its ssh URL through [`github::use_ssh_origin`](src/github.rs), once an ssh probe to GitHub authenticates. Only `remote.origin.url` changes; `pushurl` stays.
+- This repo's checkout: [`github.rs`](src/github.rs), only when you run `dotfiles github` and ssh authenticates, sets an HTTPS `origin` to ssh. A shallow clone gets `git fetch --unshallow`, and a single-branch one gets `git remote set-branches origin '*'` and a fetch.
 - SSH keys: [`core.rs`](src/layers/core.rs) invokes `ssh-keygen` for `$DOTFILES_SSH_KEY` (default `~/.ssh/id_ed25519`) and its `.pub` file. It skips generation in containers or without a terminal for the passphrase. [`signing.rs`](src/signing.rs) reads only the public half.
 - Hooks: [`hooks.rs`](src/hooks.rs) runs SessionStart scripts once per install or relink. It creates their destination directories and sets the agent config variable and `AGENTIC_DEV_DIR`. agentic manages `~/.codex/AGENTS.md`, `~/.agents/skills/` and its Claude rule and skill links. See [agentic](https://github.com/Ethan-Arrowood/agentic) for script behavior.
 - External installers: [`mac_langs.rs`](src/layers/mac_langs.rs) runs fnm, rustup, uv, and `npm install --global` for Npmfile packages into `~/.npm-global`; [`mac_apps.rs`](src/layers/mac_apps.rs) runs the Claude installer; [`work_harper.rs`](src/layers/work_harper.rs) registers the dispatch marketplace and plugin. These tools manage their own files.
@@ -148,7 +149,7 @@ When org links exist, the tool sets `pluginConfigs."cc-plugin-agents-md@builtin"
 | [`mac_base.rs`](src/layers/mac_base.rs) | Shipped Defaultsfile and Shortcuts.json, comments, malformed lines, typed plist values |
 | [`dock.rs`](src/dock.rs) | Paths with spaces, flags, plist paths, stray percent signs |
 | [`signing.rs`](src/signing.rs) | `.pub` appended, Git config quoting |
-| [`github.rs`](src/github.rs) | Key matches include type |
+| [`github.rs`](src/github.rs) | Key matches include type, ssh URLs only for the same repo in any case, `origin` switch waits for ssh, skips dry runs, keeps `pushurl` and runs once, shallow and single-branch clones get full history and every branch |
 | [`ctx.rs`](src/ctx.rs) | Recorded root survives shell quoting |
 | [`tmpdir.rs`](src/tmpdir.rs) | 0700 mode, exclusive creation, cleanup |
 
