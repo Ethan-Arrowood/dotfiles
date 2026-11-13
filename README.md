@@ -137,7 +137,7 @@ Skills link to those editable checkouts, so edits apply without syncing. The fir
 dotfiles ncu
 ```
 
-It sets your username from `gh`, then opens two pages. On GitHub, the new classic token already has `user:email` and `read:org` ticked and is named after the machine: pick an expiry, generate it, and paste it at the hidden prompt. On ci.nodejs.org, add an API token and paste that too. The config ends up at `~/.config/ncurc` (ncu reads `$XDG_CONFIG_HOME/ncurc`, which `.zshenv` sets), mode `0600`. An existing `~/.ncurc` moves there. `dotfiles install` and `dotfiles doctor` point here while the config is missing.
+It sets your username from `gh`, then opens two pages. On GitHub, the new classic token already has `user:email` and `read:org` ticked and is named after the machine: pick an expiry, generate it, and paste it at the hidden prompt. On ci.nodejs.org, add an API token and paste that too. The config ends up at `~/.config/ncurc` (ncu reads `$XDG_CONFIG_HOME/ncurc`, which `.zshenv` sets), mode `0600`. An existing `~/.ncurc` moves there, with a link left at the old path for shells that don't set `XDG_CONFIG_HOME`. `dotfiles install` and `dotfiles doctor` point here while the config is missing.
 
 ## Machine-local escape hatches
 

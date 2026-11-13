@@ -68,10 +68,13 @@ pub fn run(ctx: &Ctx) -> Result<()> {
     // A config made before XDG_CONFIG_HOME was set lives at ~/.ncurc, which
     // ncu stops reading once the variable is set.
     let legacy = ctx.home.join(".ncurc");
-    if !cfg.exists() && legacy.is_file() {
+    if !cfg.exists() && legacy.is_file() && !legacy.is_symlink() {
         std::fs::rename(&legacy, &cfg).context("moving ~/.ncurc")?;
+        // A shell without XDG_CONFIG_HOME still reads ~/.ncurc, so leave a
+        // link there until every shell gets the core .zshenv.
+        std::os::unix::fs::symlink(&cfg, &legacy).context("linking ~/.ncurc")?;
         ui::ok(&format!(
-            "moved {} to {}, where ncu now looks",
+            "moved {} to {}, where ncu now looks, and linked the old path to it",
             ctx.pretty(&legacy),
             ctx.pretty(&cfg)
         ));
