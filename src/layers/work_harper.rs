@@ -14,7 +14,7 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
         brew::bundle(ctx, &brewfile)?;
         tailscale(ctx);
     } else {
-        ui::skip("not macOS: skipping codex, agy, gcloud, Tailscale and LastPass");
+        ui::skip("not macOS: skipping codex, agy, gcloud, Tailscale, LastPass and screen");
     }
     dispatch(ctx)?;
     if !ctx.home.join("dev/harperfast").is_dir() {

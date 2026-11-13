@@ -9,3 +9,7 @@ cask gcloud-cli
 
 # Standalone Tailscale app. Allow its VPN configuration and sign in manually.
 cask tailscale-app
+
+# Dispatch live (rc) sessions need GNU screen 4.06 or newer. macOS ships 4.00.03,
+# which can't start a session under launchd.
+formula screen
