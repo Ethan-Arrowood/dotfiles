@@ -56,17 +56,24 @@ fn ssh_config(ctx: &Ctx, layer_dir: &Path) -> Result<()> {
         link::chmod(&config_d, 0o700)?;
     }
 
+    // `Include config.d/*` reads every file there as config, so host keys
+    // need their own directory.
+    let known_hosts_d = ssh_dir.join("known_hosts.d");
     let src_dir = layer_dir.join("ssh");
     if src_dir.is_dir() {
         let mut files: Vec<_> = std::fs::read_dir(&src_dir)?
             .filter_map(|e| e.ok())
             .map(|e| e.path())
-            .filter(|p| p.extension().map(|x| x == "conf").unwrap_or(false))
             .collect();
         files.sort();
         for f in files {
+            let dir = match f.extension().and_then(|x| x.to_str()) {
+                Some("conf") => &config_d,
+                Some("known_hosts") => &known_hosts_d,
+                _ => continue,
+            };
             let name = f.file_name().unwrap().to_owned();
-            link::link_file(ctx, &f, &config_d.join(name))?;
+            link::link_file(ctx, &f, &dir.join(name))?;
         }
     }
 
