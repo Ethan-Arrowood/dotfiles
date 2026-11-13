@@ -127,7 +127,7 @@ Trust new Codex hooks with `/hooks`. Start a new session to load changed rules. 
 | `rules <owner>/<repo>` | Rules, separately from skills |
 | `hook <agent> <owner>/<repo>#<path> <Event> [secs]` | A hook for `claude` or `codex` |
 
-Repos clone to `$DOTFILES_SRC_DIR/<owner>/<repo>` (default `~/dev`), with lowercase owners. Cloning tries HTTPS, then `gh repo clone`, then SSH. When all three fail, the installer prints one warning with the last error. The installer leaves existing checkouts alone. agentic's sync hooks may run `git pull --ff-only`.
+Repos clone to `$DOTFILES_SRC_DIR/<owner>/<repo>` (default `~/dev`), with lowercase owners. Cloning tries HTTPS, then `gh repo clone`, then SSH. When all three fail, the installer prints one warning with the last error. Once SSH to GitHub works, it sets an HTTPS `origin` to `git@github.com:<owner>/<repo>.git`, on new and existing checkouts, so every clone pushes with the SSH key. Until then, `origin` stays on HTTPS so fetches keep working. It changes nothing else in existing checkouts. agentic's sync hooks may run `git pull --ff-only`.
 
 Skills link to those editable checkouts, so edits apply without syncing. The first layer claiming a skill name wins. Local skill directories stay untouched. Remove `harperfast/skills-internal` from the work Skillfile on machines not used for Harper contribution.
 
@@ -183,7 +183,7 @@ Git pushes `https://github.com/` URLs over SSH (`pushInsteadOf`). Clones and fet
 dotfiles github
 ```
 
-The command handles `gh auth login`, missing token scopes and uploads, asking before account changes. It checks SSH authentication and makes a signed commit in a temporary repo to verify local signing.
+The command handles `gh auth login`, missing token scopes and uploads, asking before account changes. It checks SSH authentication and makes a signed commit in a temporary repo to verify local signing. Once SSH works, it moves this repo's HTTPS `origin` to SSH and fetches the full history that `install.sh`'s shallow clone left out.
 
 | Key type | Purpose | Token scope |
 | --- | --- | --- |
