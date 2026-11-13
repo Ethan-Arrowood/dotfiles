@@ -52,6 +52,8 @@ dotfiles install --profile core --with mac-apps
 
 `core` needs no Homebrew, Node or GUI. It skips optional shell integrations when absent. Other layers' Brewfiles need Homebrew; `mac-base` installs it.
 
+`mac-apps` makes Chrome the default browser when Launch Services shows another browser for `http` or `https`. macOS asks you to confirm in a dialog. Dry runs report the change without making it. Installs without a GUI session, such as over ssh, skip it.
+
 ## Commands
 
 | Command | Purpose |

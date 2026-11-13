@@ -39,7 +39,7 @@ Layers opt in by shipping files. `home/` and `Skillfile` processing runs for eve
 
 The Dock stays unchanged when its paths match and its flags match `~/.config/dotfiles/dock.applied`. The plist's numeric settings do not map directly to `dockutil` flags, so the tool records the last successful specification.
 
-Helpers: [`ui::{head,step,ok,skip,warn,detail}`](src/ui.rs), [`link::{link_file,link_home_dir,write_file}`](src/link.rs), [`brew::bundle`](src/brew.rs), [`sys::{has,which,is_macos,is_container,allow_global_changes}`](src/sys.rs).
+Helpers: [`ui::{head,step,ok,skip,warn,detail}`](src/ui.rs), [`link::{link_file,link_home_dir,write_file}`](src/link.rs), [`brew::bundle`](src/brew.rs), [`sys::{has,which,is_macos,is_container,has_gui_session,allow_global_changes}`](src/sys.rs).
 
 ## Everything that touches $HOME
 
@@ -78,6 +78,7 @@ Other changes:
 - SSH keys: [`core.rs`](src/layers/core.rs) invokes `ssh-keygen` for `$DOTFILES_SSH_KEY` (default `~/.ssh/id_ed25519`) and its `.pub` file. It skips generation in containers or without a terminal for the passphrase. [`signing.rs`](src/signing.rs) reads only the public half.
 - Hooks: [`hooks.rs`](src/hooks.rs) runs SessionStart scripts once per install or relink. It creates their destination directories and sets the agent config variable and `AGENTIC_DEV_DIR`. agentic manages `~/.codex/AGENTS.md`, `~/.agents/skills/` and its Claude rule and skill links. See [agentic](https://github.com/Ethan-Arrowood/agentic) for script behavior.
 - External installers: [`mac_langs.rs`](src/layers/mac_langs.rs) runs fnm, rustup, uv, and `npm install --global` for Npmfile packages into `~/.npm-global`; [`mac_apps.rs`](src/layers/mac_apps.rs) runs the Claude installer; [`work_harper.rs`](src/layers/work_harper.rs) registers the dispatch marketplace and plugin. These tools manage their own files.
+- Default browser: [`mac_apps.rs`](src/layers/mac_apps.rs) reads the `http` and `https` handlers from `~/Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist` with `plutil`. When either is not Chrome, it runs `defaultbrowser chrome` and macOS asks to confirm. Dry runs only report it. Sessions without a GUI skip it: `launchctl managername` is not `Aqua`, or `SSH_CONNECTION` is set. An unreadable plist warns and changes nothing.
 - Shell startup creates zsh [history](layers/core/zsh/00-options.zsh) and [completion caches](layers/core/zsh/10-completion.zsh) under the configured XDG directories.
 - Bootstrap: [`install.sh`](install.sh) clones or updates `$DOTFILES_ROOT` (default `~/dev/dotfiles`) and writes the binary to `$DOTFILES_BIN_DIR` (default `~/.local/bin`).
 
@@ -97,7 +98,7 @@ Relative backup paths prevent same-basename collisions such as `~/.ssh/config` a
 [`sys::allow_global_changes()`](src/sys.rs) guards CLI operations that can escape `$HOME`:
 
 1. Packages and external installers: [`brew.rs`](src/brew.rs), [`mac_langs.rs`](src/layers/mac_langs.rs), [`mac_apps.rs`](src/layers/mac_apps.rs), and `sys_install`. The latter guards internally because it can escalate to root.
-2. macOS state: defaults, shortcuts, computer names and Xcode CLT installation in [`mac_base.rs`](src/layers/mac_base.rs), the [Dock](src/dock.rs), and [Chrome policies](src/layers/mac_apps.rs).
+2. macOS state: defaults, shortcuts, computer names and Xcode CLT installation in [`mac_base.rs`](src/layers/mac_base.rs), the [Dock](src/dock.rs), and [Chrome policies and the default browser](src/layers/mac_apps.rs).
 3. Account and agent state: `chsh` and `ssh-add --apple-use-keychain` in [`core.rs`](src/layers/core.rs), [GitHub uploads](src/github.rs), and the [dispatch plugin](src/layers/work_harper.rs). `ssh-add` can write the real login Keychain.
 
 The guard compares canonical `$HOME` and account-home paths from `getent` or `dscl`. A mismatch or failed lookup blocks global changes. Only `DOTFILES_ALLOW_SANDBOXED_HOME=1` overrides it. CI checks that it fires.
@@ -136,7 +137,7 @@ When org links exist, the tool sets `pluginConfigs."cc-plugin-agents-md@builtin"
 | Area | Asserts |
 | --- | --- |
 | [`link.rs`](src/link.rs) | Idempotence, backup content and collisions, real directories preserved, dangling links, backup overwrite refusal |
-| [`sys.rs`](src/sys.rs) | Account home and shell resolve, trailing-slash `$HOME`, unknown home blocks changes, only override `1` counts |
+| [`sys.rs`](src/sys.rs) | Account home and shell resolve, trailing-slash `$HOME`, unknown home blocks changes, only override `1` counts, GUI session needs `Aqua` and no ssh |
 | [`shellinit.rs`](src/shellinit.rs) | zsh guards, no runtime globbing, quoted roots, fragment names and profiles |
 | [`brew.rs`](src/brew.rs) | Comments, malformed lines, namespaced formulas, cask apps/receipts/commands, `brew shellenv` imports `PATH` |
 | [`skills.rs`](src/skills.rs) | Entry parsing, `#` separators, malformed lines, known hook agents, lowercase owners, discovery depth and exclusions |
@@ -146,6 +147,7 @@ When org links exist, the tool sets `pluginConfigs."cc-plugin-agents-md@builtin"
 | [`mac_langs.rs`](src/layers/mac_langs.rs) | `~/.npmrc` merge keeps other lines and is idempotent, shipped Npmfile parses, extra words reported |
 | [`ncu.rs`](src/ncu.rs) | missing config detected where ncu reads it (not `~/.ncurc`), only key names read, URL encoding |
 | [`mac_base.rs`](src/layers/mac_base.rs) | Shipped Defaultsfile and Shortcuts.json, comments, malformed lines, typed plist values |
+| [`mac_apps.rs`](src/layers/mac_apps.rs) | Chrome is the default only when it handles both `http` and `https`, bundle ids compare without case, a missing plist means Safari, unreadable handlers are errors |
 | [`dock.rs`](src/dock.rs) | Paths with spaces, flags, plist paths, stray percent signs |
 | [`signing.rs`](src/signing.rs) | `.pub` appended, Git config quoting |
 | [`github.rs`](src/github.rs) | Key matches include type |

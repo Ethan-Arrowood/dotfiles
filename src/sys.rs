@@ -21,6 +21,24 @@ pub fn is_container() -> bool {
         || std::path::Path::new("/run/.containerenv").exists()
 }
 
+/// Can someone at the screen answer a macOS dialog? `launchctl managername`
+/// prints `Aqua` inside a logged-in GUI session. Over ssh a dialog would
+/// appear on a screen nobody is watching.
+pub fn has_gui_session() -> bool {
+    let manager = Cmd::new("launchctl")
+        .arg("managername")
+        .capture()
+        .ok()
+        .filter(|c| c.ok)
+        .map(|c| c.trimmed().to_string())
+        .unwrap_or_default();
+    gui_session(&manager, std::env::var_os("SSH_CONNECTION").is_some())
+}
+
+fn gui_session(manager: &str, over_ssh: bool) -> bool {
+    manager == "Aqua" && !over_ssh
+}
+
 /// Is `name` on PATH?
 pub fn has(name: &str) -> bool {
     which(name).is_some()
@@ -481,6 +499,15 @@ mod tests {
             verdict,
             "a trailing slash on $HOME must not read as sandboxed"
         );
+    }
+
+    #[test]
+    fn gui_session_needs_aqua_and_no_ssh() {
+        assert!(gui_session("Aqua", false));
+        assert!(!gui_session("Aqua", true));
+        for m in ["Background", "StandardIO", "System", ""] {
+            assert!(!gui_session(m, false), "{m:?}");
+        }
     }
 
     #[test]
