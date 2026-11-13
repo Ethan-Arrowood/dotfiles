@@ -1,0 +1,7 @@
+version: 2
+updates:
+  # Bump the pinned action SHAs and their version comments.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
