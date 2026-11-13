@@ -5,6 +5,7 @@ cask lastpass
 # Agent CLIs. Each needs a one-time sign-in per machine.
 cask codex
 cask antigravity-cli            # installs as `agy`
+cask cursor-cli                 # installs as `cursor-agent`
 cask gcloud-cli
 
 # Standalone Tailscale app. Allow its VPN configuration and sign in manually.
