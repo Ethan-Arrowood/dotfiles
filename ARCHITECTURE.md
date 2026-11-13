@@ -46,7 +46,7 @@ Links through [`link::link_file`](src/link.rs):
 
 | Source | Destination | Code |
 | --- | --- | --- |
-| `home/*` | `$HOME/*`: `.zshrc`, `.zshenv`, `.zprofile`, `.gitconfig`, `.gitignore_global`, `.npmrc` | [`link.rs`](src/link.rs) |
+| `home/*` | `$HOME/*`: `.zshrc`, `.zshenv`, `.zprofile`, `.gitconfig`, `.gitignore_global` | [`link.rs`](src/link.rs) |
 | `ssh/*.conf` | `~/.ssh/config.d/` | [`core.rs`](src/layers/core.rs) |
 | `rules/*.md` and subdirectories except `orgs/` | `~/.claude/rules/` | [`claude.rs`](src/claude.rs) |
 | `rules/orgs/<org>.md` | `$DOTFILES_SRC_DIR/<org>/AGENTS.md`, default `~/dev/<org>/AGENTS.md`, where the org directory exists | [`claude.rs`](src/claude.rs) |
@@ -68,6 +68,7 @@ Generated state lives in `~/.config/dotfiles/`, regardless of `XDG_CONFIG_HOME`.
 Other changes:
 
 - `~/.ssh/config`: [`core.rs`](src/layers/core.rs) prepends `Include ~/.ssh/config.d/*` after copying the original to the backup directory. It replaces broken symlinks and leaves unreadable files alone.
+- `~/.npmrc`: [`mac_langs.rs`](src/layers/mac_langs.rs) merges the keys in [`layers/mac-langs/npmrc`](layers/mac-langs/npmrc), including the shared global prefix `~/.npm-global`, which it creates. Other lines, such as npm's registry auth token, stay. A changed file is backed up first; a link from an older install is replaced with a real file.
 - `~/.ssh/allowed_signers`: [`signing.rs`](src/signing.rs) appends a missing key by rewriting the file, without a backup. It leaves unreadable files alone.
 - `<src_root>/<org>/CLAUDE.md`: [`claude.rs`](src/claude.rs) backs up an old one-line org import only when an `AGENTS.md` link replaces it. Other content stays.
 - `~/.claude/settings.json`, `~/.codex/hooks.json`: [`hooks.rs`](src/hooks.rs) merges missing entries, preserves key order, backs up once per run and writes atomically. Parse errors or wrong value shapes warn without changing the file. Writes preserve permissions and follow existing symlinks to their targets.

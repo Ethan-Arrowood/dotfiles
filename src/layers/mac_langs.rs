@@ -3,8 +3,9 @@
 use crate::ctx::Ctx;
 use crate::layer::Layer;
 use crate::sys::{self, Cmd};
-use crate::{brew, ui};
-use anyhow::Result;
+use crate::{brew, link, ui};
+use anyhow::{Context, Result};
+use std::path::Path;
 
 pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
     let dir = layer.path(ctx);
@@ -12,9 +13,86 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
     brew::bundle(ctx, &dir.join("Brewfile"))?;
     brew::load_shellenv()?;
     node(ctx)?;
+    npmrc(ctx, &dir.join("npmrc"))?;
     rust(ctx)?;
     python(ctx)?;
     Ok(())
+}
+
+/// Merge `npmrc` into `~/.npmrc` key by key. npm writes the registry auth
+/// token there on login, so the file is never linked or replaced: other lines
+/// stay, a changed file is backed up first, and matching keys are left alone.
+fn npmrc(ctx: &Ctx, src: &Path) -> Result<()> {
+    let text =
+        std::fs::read_to_string(src).with_context(|| format!("reading {}", src.display()))?;
+    let want = ini_pairs(&text);
+    let dst = ctx.home.join(".npmrc");
+    // A link left by an older install points into the repo; read through it,
+    // then replace it with a real file.
+    let is_link = dst.is_symlink();
+    let have = std::fs::read_to_string(&dst).unwrap_or_default();
+    let merged = merge_ini(&have, &want);
+    if merged == have && !is_link {
+        ui::skip("~/.npmrc already set");
+    } else if ctx.dry_run {
+        ui::dry("merge npm settings into ~/.npmrc");
+    } else {
+        if dst.exists() {
+            let backup = link::backup_path(ctx, &dst);
+            if !backup.exists() {
+                if let Some(parent) = backup.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::copy(&dst, &backup)?;
+            }
+        }
+        if is_link {
+            std::fs::remove_file(&dst)?;
+        }
+        std::fs::write(&dst, &merged)?;
+        link::chmod(&dst, 0o600)?;
+        ui::ok("merged npm settings into ~/.npmrc");
+    }
+    let global = ctx.home.join(".npm-global");
+    if !ctx.dry_run {
+        std::fs::create_dir_all(&global)?;
+    }
+    Ok(())
+}
+
+/// `key=value` lines, skipping blanks and `#`/`;` comments.
+fn ini_pairs(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with(';'))
+        .filter_map(|l| l.split_once('='))
+        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+        .collect()
+}
+
+/// Set each wanted key in an ini file's text: replace the value where the key
+/// exists, append it where it doesn't, and keep every other line as is.
+fn merge_ini(have: &str, want: &[(String, String)]) -> String {
+    let mut lines: Vec<String> = have.lines().map(String::from).collect();
+    for (k, v) in want {
+        let line = format!("{k}={v}");
+        match lines
+            .iter()
+            .position(|l| l.split_once('=').is_some_and(|(lk, _)| lk.trim() == k))
+        {
+            Some(i) => {
+                if lines[i].split_once('=').map(|(_, lv)| lv.trim()) != Some(v.as_str()) {
+                    lines[i] = line;
+                }
+            }
+            None => lines.push(line),
+        }
+    }
+    let mut out = lines.join("\n");
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out
 }
 
 fn node(ctx: &Ctx) -> Result<()> {
@@ -162,4 +240,29 @@ fn python_313(ctx: &Ctx) -> Result<()> {
         ui::warn("uv python install failed");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The auth token npm wrote stays; wanted keys are set or replaced.
+    #[test]
+    fn merge_ini_keeps_other_lines() {
+        let have = "//registry.npmjs.org/:_authToken=secret\nfund=true\n";
+        let want = ini_pairs("# note\nfund=false\nprefix=~/.npm-global\n");
+        let out = merge_ini(have, &want);
+        assert_eq!(
+            out,
+            "//registry.npmjs.org/:_authToken=secret\nfund=false\nprefix=~/.npm-global\n"
+        );
+        // A second merge changes nothing.
+        assert_eq!(merge_ini(&out, &want), out);
+    }
+
+    #[test]
+    fn merge_ini_writes_a_missing_file() {
+        let want = ini_pairs("fund=false\n");
+        assert_eq!(merge_ini("", &want), "fund=false\n");
+    }
 }

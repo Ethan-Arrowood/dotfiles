@@ -6,3 +6,6 @@ if command -v fnm >/dev/null 2>&1; then
   esac
 fi
 
+# Global npm CLIs, shared across Node versions (prefix in ~/.npmrc). Appended
+# so each version's own node, npm and npx stay first.
+export PATH="$PATH:$HOME/.npm-global/bin"

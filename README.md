@@ -45,7 +45,7 @@ dotfiles install --profile core --with mac-apps
 | --- | --- | --- |
 | `core` | any | zsh, git, ssh, commit signing, aliases, functions |
 | `mac-base` | macOS | Xcode CLT, Homebrew, CLI tools, macOS defaults, keyboard and mouse shortcuts, Dock, computer name |
-| `mac-langs` | macOS | Node (fnm), Rust (rustup), Python (uv), C/C++, Java |
+| `mac-langs` | macOS | Node (fnm, with one npm global prefix, `~/.npm-global`, shared by every version), Rust (rustup), Python (uv), C/C++, Java |
 | `mac-apps` | macOS | Chrome, VS Code, Claude, Ghostty, Dashlane CLI |
 | `mac-apps-extra` | macOS | Slack, Zoom, Spotify, Discord, Podman, DaisyDisk |
 | `work-harper` | any | [dispatch](src/layers/work_harper.rs) client and Claude plugin, Harper aliases and skills. On macOS: Codex, Antigravity (`agy`), gcloud, Tailscale, LastPass. Opt-in; no identity override |
