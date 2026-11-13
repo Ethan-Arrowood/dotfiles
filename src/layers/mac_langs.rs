@@ -14,6 +14,7 @@ pub fn install(ctx: &Ctx, layer: &Layer) -> Result<()> {
     brew::load_shellenv()?;
     node(ctx)?;
     npmrc(ctx, &dir.join("npmrc"))?;
+    npm_globals(ctx, &dir.join("Npmfile"))?;
     rust(ctx)?;
     python(ctx)?;
     Ok(())
@@ -58,6 +59,77 @@ fn npmrc(ctx: &Ctx, src: &Path) -> Result<()> {
         std::fs::create_dir_all(&global)?;
     }
     Ok(())
+}
+
+/// Install the packages an `Npmfile` lists that aren't in the shared prefix
+/// yet. Checked by directory, so a second run starts no npm at all.
+fn npm_globals(ctx: &Ctx, path: &Path) -> Result<()> {
+    if !path.is_file() {
+        return Ok(());
+    }
+    if !ctx.dry_run && !sys::allow_global_changes() {
+        return Ok(());
+    }
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let (pkgs, problems) = parse_npmfile(&text);
+    for p in &problems {
+        ui::warn(&format!("Npmfile: {p}"));
+    }
+    let modules = ctx.home.join(".npm-global/lib/node_modules");
+    let missing: Vec<&str> = pkgs
+        .iter()
+        .map(String::as_str)
+        .filter(|p| {
+            if modules.join(p).join("package.json").is_file() {
+                ui::skip(&format!("{p} (global)"));
+                false
+            } else {
+                true
+            }
+        })
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    if !ctx.dry_run && !sys::has("fnm") {
+        ui::warn("fnm missing; skipping global npm packages");
+        return Ok(());
+    }
+    if !Cmd::new("fnm")
+        .args([
+            "exec",
+            "--using=default",
+            "--",
+            "npm",
+            "install",
+            "--global",
+        ])
+        .args(missing.iter().copied())
+        .run(ctx, &format!("npm install --global {}", missing.join(" ")))?
+    {
+        ui::warn("npm install --global failed");
+    }
+    Ok(())
+}
+
+/// One package name per line, `#` comments allowed. Extra words are reported
+/// with the line number rather than dropped.
+fn parse_npmfile(text: &str) -> (Vec<String>, Vec<String>) {
+    let mut pkgs = Vec::new();
+    let mut problems = Vec::new();
+    for (i, raw) in text.lines().enumerate() {
+        let line = raw.split('#').next().unwrap_or("").trim();
+        let mut words = line.split_whitespace();
+        match (words.next(), words.next()) {
+            (None, _) => {}
+            (Some(p), None) => pkgs.push(p.to_string()),
+            (Some(_), Some(extra)) => {
+                problems.push(format!("line {}: unexpected `{extra}`", i + 1))
+            }
+        }
+    }
+    (pkgs, problems)
 }
 
 /// `key=value` lines, skipping blanks and `#`/`;` comments.
@@ -258,6 +330,22 @@ mod tests {
         );
         // A second merge changes nothing.
         assert_eq!(merge_ini(&out, &want), out);
+    }
+
+    #[test]
+    fn npmfile_parses_scoped_names_and_reports_extra_words() {
+        let (pkgs, problems) = parse_npmfile("# c\n@node-core/utils   # note\n\npnpm typescript\n");
+        assert_eq!(pkgs, vec!["@node-core/utils"]);
+        assert_eq!(problems.len(), 1);
+        assert!(problems[0].starts_with("line 4"), "{problems:?}");
+    }
+
+    #[test]
+    fn shipped_npmfile_parses() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/layers/mac-langs/Npmfile");
+        let (pkgs, problems) = parse_npmfile(&std::fs::read_to_string(path).unwrap());
+        assert!(problems.is_empty(), "{problems:?}");
+        assert!(pkgs.contains(&"@node-core/utils".to_string()));
     }
 
     #[test]

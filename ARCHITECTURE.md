@@ -34,6 +34,7 @@ Layers opt in by shipping files. `home/` and `Skillfile` processing runs for eve
 | `Skillfile` | [`skills.rs`](src/skills.rs): [syntax](README.md#skills). Find `SKILL.md` at depths 1 and 2; stop descending inside a skill. Track claimed names across layers |
 | `Defaultsfile` | [`mac_base.rs`](src/layers/mac_base.rs): `domain key type value`. Report malformed lines with line numbers. Write only changed keys |
 | `Shortcuts.json` | [`mac_base.rs`](src/layers/mac_base.rs): `com.apple.symbolichotkeys` entries keyed by shortcut id, such as mouse button 5 for Mission Control. Each entry is merged with `defaults write -dict-add` only when it differs; other ids keep the machine's value. Refresh it from a configured Mac with `defaults export com.apple.symbolichotkeys - \| plutil -extract AppleSymbolicHotKeys json -o - -` |
+| `Npmfile` | [`mac_langs.rs`](src/layers/mac_langs.rs): one global npm package per line, `#` comments. Packages missing from `~/.npm-global` install with `npm install --global` under fnm's default Node. Extra words on a line are reported |
 | `Dockfile` | [`dock.rs`](src/dock.rs): one path per line, optionally followed by `dockutil` flags. Combine in layer order, skip absent paths, apply after apps install |
 
 The Dock stays unchanged when its paths match and its flags match `~/.config/dotfiles/dock.applied`. The plist's numeric settings do not map directly to `dockutil` flags, so the tool records the last successful specification.
@@ -141,6 +142,7 @@ When org links exist, the tool sets `pluginConfigs."cc-plugin-agents-md@builtin"
 | [`hooks.rs`](src/hooks.rs) | Existing hooks and key order preserved, idempotence, aliases, malformed shapes, Codex `startup` matcher |
 | [`claude.rs`](src/claude.rs) | Org links only in existing directories, old imports backed up, user files and plugin choices preserved |
 | [`layer.rs`](src/layer.rs) | Unique names, asset directories, mandatory `core`, README struct example |
+| [`mac_langs.rs`](src/layers/mac_langs.rs) | `~/.npmrc` merge keeps other lines and is idempotent, shipped Npmfile parses, extra words reported |
 | [`mac_base.rs`](src/layers/mac_base.rs) | Shipped Defaultsfile and Shortcuts.json, comments, malformed lines, typed plist values |
 | [`dock.rs`](src/dock.rs) | Paths with spaces, flags, plist paths, stray percent signs |
 | [`signing.rs`](src/signing.rs) | `.pub` appended, Git config quoting |
