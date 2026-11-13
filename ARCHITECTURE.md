@@ -139,7 +139,7 @@ When org links exist, the tool sets `pluginConfigs."cc-plugin-agents-md@builtin"
 | [`sys.rs`](src/sys.rs) | Account home and shell resolve, trailing-slash `$HOME`, unknown home blocks changes, only override `1` counts |
 | [`shellinit.rs`](src/shellinit.rs) | zsh guards, no runtime globbing, quoted roots, fragment names and profiles |
 | [`brew.rs`](src/brew.rs) | Comments, malformed lines, namespaced formulas, cask apps/receipts/commands, `brew shellenv` imports `PATH` |
-| [`skills.rs`](src/skills.rs) | Entry parsing, `#` separators, malformed lines, known hook agents, lowercase owners, discovery depth and exclusions |
+| [`skills.rs`](src/skills.rs) | Entry parsing, `#` separators, malformed lines, known hook agents and events, lowercase owners, discovery depth and exclusions |
 | [`hooks.rs`](src/hooks.rs) | Existing hooks and key order preserved, idempotence, aliases, malformed shapes, Codex `startup` matcher |
 | [`claude.rs`](src/claude.rs) | Org links only in existing directories, old imports backed up, user files and plugin choices preserved |
 | [`layer.rs`](src/layer.rs) | Unique names, asset directories, mandatory `core`, README struct example |

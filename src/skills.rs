@@ -153,6 +153,13 @@ pub fn parse(text: &str) -> (Vec<Entry>, Vec<String>) {
                     }
                 };
                 match rest.first() {
+                    // A misspelled event registers a hook that never fires.
+                    Some(event) if rest.len() <= 2 && !agent.events().contains(event) => {
+                        problems.push(format!(
+                            "line {n}: `{event}` is not a {} hook event",
+                            agent.name()
+                        ));
+                    }
                     Some(event) if rest.len() <= 2 => entries.push(Entry::Hook {
                         agent,
                         owner: owner.to_string(),
@@ -431,6 +438,43 @@ mod tests {
         );
         assert_eq!(p.len(), 5, "{p:?}");
         assert!(p[3].contains("unknown agent `o/r#a.sh`"), "{}", p[3]);
+    }
+
+    /// Each agent accepts only its own events, so a typo or another agent's
+    /// event is reported instead of registering a hook that never fires.
+    #[test]
+    fn unknown_hook_events_are_reported() {
+        let (e, p) = parse(
+            "hook claude o/r#a.sh SesionStart\n\
+             hook codex o/r#a.sh Notification\n\
+             hook claude o/r#a.sh Notification\n\
+             hook codex o/r#a.sh Interrupt\n\
+             hook claude o/r#a.sh Interrupt 5\n",
+        );
+        let events: Vec<&str> = e
+            .iter()
+            .map(|e| match e {
+                Entry::Hook { event, .. } => event.as_str(),
+                _ => unreachable!(),
+            })
+            .collect();
+        assert_eq!(events, ["Notification", "Interrupt"]);
+        assert_eq!(p.len(), 3, "{p:?}");
+        assert!(
+            p[0].contains("line 1") && p[0].contains("`SesionStart` is not a claude hook event"),
+            "{}",
+            p[0]
+        );
+        assert!(
+            p[1].contains("line 2") && p[1].contains("codex"),
+            "{}",
+            p[1]
+        );
+        assert!(
+            p[2].contains("line 5") && p[2].contains("claude"),
+            "{}",
+            p[2]
+        );
     }
 
     #[test]
