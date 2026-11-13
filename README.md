@@ -123,7 +123,7 @@ Trust new Codex hooks with `/hooks`. Start a new session to load changed rules. 
 | `repo <owner>/<repo>` | Every skill |
 | `skill <owner>/<repo>#<skill>` | One skill |
 | `rules <owner>/<repo>` | Rules, separately from skills |
-| `hook <agent> <owner>/<repo>#<path> <Event> [secs]` | A hook for `claude` or `codex` |
+| `hook <agent> <owner>/<repo>#<path> <Event> [secs]` | A hook for `claude` or `codex`, on an [event that agent supports](src/hooks.rs) |
 
 Repos clone to `$DOTFILES_SRC_DIR/<owner>/<repo>` (default `~/dev`), with lowercase owners. Cloning tries HTTPS, then `gh repo clone`, then SSH. The installer leaves existing checkouts alone. agentic's sync hooks may run `git pull --ff-only`.
 
