@@ -14,7 +14,7 @@ With `dotfiles` installed:
 dotfiles install --profile mac-dev
 ```
 
-On a fresh Mac, install Apple's Command Line Tools when prompted, then rerun the command. [`install.sh`](install.sh) clones or updates the repo and downloads a prebuilt binary. If the download fails or the platform needs a source build, it uses `cargo build` if available.
+On a fresh Mac, install Apple's Command Line Tools when prompted, then rerun the command. Installing Homebrew then asks for your password through `sudo`. Without a terminal, run `sudo -v` first. [`install.sh`](install.sh) clones or updates the repo and downloads a prebuilt binary. If the download fails or the platform needs a source build, it uses `cargo build` if available.
 
 Use `--dry-run` (`-n`) to preview CLI changes. The bootstrap script still downloads the repo and binary. Repeated installs skip matching links, generated files, defaults and installed toolchains. `--update` refreshes rustup and uv. Software Update handles installed Xcode Command Line Tools.
 
