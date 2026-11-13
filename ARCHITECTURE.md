@@ -35,7 +35,7 @@ Layers opt in by shipping files. `home/` and `Skillfile` processing runs for eve
 | `Defaultsfile` | [`mac_base.rs`](src/layers/mac_base.rs): `domain key type value`. Report malformed lines with line numbers. Write only changed keys |
 | `Shortcuts.json` | [`mac_base.rs`](src/layers/mac_base.rs): `com.apple.symbolichotkeys` entries keyed by shortcut id ([what each does](README.md#macos-shortcuts)). Each entry is merged with `defaults write -dict-add` only when it differs; other ids keep the machine's value. Refresh it from a configured Mac with `defaults export com.apple.symbolichotkeys - \| plutil -extract AppleSymbolicHotKeys json -o - -` |
 | `Npmfile` | [`mac_langs.rs`](src/layers/mac_langs.rs): one global npm package per line, `#` comments. Packages missing from `~/.npm-global` install with `npm install --global` under fnm's default Node. Extra words on a line are reported |
-| `Dockfile` | [`dock.rs`](src/dock.rs): one path per line, optionally followed by `dockutil` flags. Combine in layer order, skip absent paths, apply after apps install |
+| `Dockfile` | [`dock.rs`](src/dock.rs): one path per line, optionally followed by `dockutil` flags. Combine in layer order, skip absent paths, apply after apps install. Report paths that are not absolute or `~/` with their file and line number |
 
 The Dock stays unchanged when its paths match and its flags match `~/.config/dotfiles/dock.applied`. The plist's numeric settings do not map directly to `dockutil` flags, so the tool records the last successful specification.
 
@@ -146,7 +146,7 @@ When org links exist, the tool sets `pluginConfigs."cc-plugin-agents-md@builtin"
 | [`mac_langs.rs`](src/layers/mac_langs.rs) | `~/.npmrc` merge keeps other lines and is idempotent, shipped Npmfile parses, extra words reported |
 | [`ncu.rs`](src/ncu.rs) | missing config detected where ncu reads it (not `~/.ncurc`), only key names read, URL encoding |
 | [`mac_base.rs`](src/layers/mac_base.rs) | Shipped Defaultsfile and Shortcuts.json, comments, malformed lines, typed plist values |
-| [`dock.rs`](src/dock.rs) | Paths with spaces, flags, plist paths, stray percent signs |
+| [`dock.rs`](src/dock.rs) | Paths with spaces, flags, relative paths reported with file and line, plist paths, stray percent signs |
 | [`signing.rs`](src/signing.rs) | `.pub` appended, Git config quoting |
 | [`github.rs`](src/github.rs) | Key matches include type |
 | [`ctx.rs`](src/ctx.rs) | Recorded root survives shell quoting |

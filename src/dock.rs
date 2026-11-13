@@ -13,21 +13,38 @@ struct Item {
     path: PathBuf,
     /// dockutil flags, e.g. `--view fan`.
     flags: Vec<String>,
+    /// The Dockfile this item came from, for warnings.
+    file: String,
+    line: usize,
 }
 
 impl Item {
     fn is_app(&self) -> bool {
         self.path.extension().is_some_and(|e| e == "app")
     }
+
+    /// Why dockutil cannot add this item, if anything.
+    fn problem(&self) -> Option<String> {
+        (!self.path.is_absolute()).then(|| {
+            format!(
+                "{}: line {}: `{}` is not an absolute or ~/ path; skipping it",
+                self.file,
+                self.line,
+                self.path.display()
+            )
+        })
+    }
 }
 
 /// One item per line: a path, optionally followed by dockutil flags. The
-/// flags start at the first ` --`, so paths may contain spaces.
-fn parse(ctx: &Ctx, text: &str) -> Vec<Item> {
+/// flags start at the first ` --`, so paths may contain spaces. `file` names
+/// the Dockfile in warnings.
+fn parse(ctx: &Ctx, file: &str, text: &str) -> Vec<Item> {
     text.lines()
-        .map(|l| skills::strip_comment(l).trim())
-        .filter(|l| !l.is_empty())
-        .map(|l| {
+        .enumerate()
+        .map(|(i, l)| (i + 1, skills::strip_comment(l).trim()))
+        .filter(|(_, l)| !l.is_empty())
+        .map(|(line, l)| {
             let (path, flags) = match l.find(" --") {
                 Some(i) => (&l[..i], &l[i..]),
                 None => (l, ""),
@@ -35,6 +52,8 @@ fn parse(ctx: &Ctx, text: &str) -> Vec<Item> {
             Item {
                 path: ctx.expand(path.trim()),
                 flags: flags.split_whitespace().map(String::from).collect(),
+                file: file.to_string(),
+                line,
             }
         })
         .collect()
@@ -93,7 +112,12 @@ pub fn apply(ctx: &Ctx, layers: &[Layer]) -> Result<()> {
         if path.is_file() {
             let text = std::fs::read_to_string(&path)
                 .with_context(|| format!("reading {}", path.display()))?;
-            items.extend(parse(ctx, &text));
+            // Every layer's Dockfile warns under one heading, so name the layer.
+            let file = match path.strip_prefix(&ctx.root) {
+                Ok(rel) => rel.display().to_string(),
+                Err(_) => ctx.pretty(&path),
+            };
+            items.extend(parse(ctx, &file, &text));
         }
     }
     if items.is_empty() {
@@ -104,11 +128,8 @@ pub fn apply(ctx: &Ctx, layers: &[Layer]) -> Result<()> {
         return Ok(());
     }
     items.retain(|i| {
-        if !i.path.is_absolute() {
-            ui::warn(&format!(
-                "Dockfile: `{}` is not an absolute or ~/ path; skipping it",
-                i.path.display()
-            ));
+        if let Some(p) = i.problem() {
+            ui::warn(&p);
             return false;
         }
         let present = i.path.exists();
@@ -183,6 +204,7 @@ mod tests {
         let ctx = Ctx::new(PathBuf::from("/repo")).unwrap();
         let items = parse(
             &ctx,
+            "layers/x/Dockfile",
             "# comment\n\
              /System/Applications/System Settings.app\n\
              \n\
@@ -194,17 +216,37 @@ mod tests {
                 Item {
                     path: "/System/Applications/System Settings.app".into(),
                     flags: vec![],
+                    file: "layers/x/Dockfile".into(),
+                    line: 2,
                 },
                 Item {
                     path: ctx.home.join("Downloads"),
                     flags: ["--view", "fan", "--sort", "dateadded"]
                         .map(String::from)
                         .to_vec(),
+                    file: "layers/x/Dockfile".into(),
+                    line: 4,
                 },
             ]
         );
         assert!(items[0].is_app());
         assert!(!items[1].is_app());
+        assert_eq!(items.iter().filter_map(Item::problem).count(), 0);
+    }
+
+    #[test]
+    fn relative_paths_are_reported_with_file_and_line() {
+        let ctx = Ctx::new(PathBuf::from("/repo")).unwrap();
+        let items = parse(
+            &ctx,
+            "layers/x/Dockfile",
+            "/Applications/Safari.app\n\n# comment\nApplications/Foo.app --view fan\n",
+        );
+        let problems: Vec<String> = items.iter().filter_map(Item::problem).collect();
+        assert_eq!(
+            problems,
+            ["layers/x/Dockfile: line 4: `Applications/Foo.app` is not an absolute or ~/ path; skipping it"]
+        );
     }
 
     #[test]
