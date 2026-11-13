@@ -235,6 +235,31 @@ Host mybox
 
 Never put `ForwardAgent yes` under `Host *`. Root on a remote server can use your forwarded agent while connected.
 
+### Always-on Macs
+
+For a Mac that runs background work, such as agent workers, while locked. This is manual: `dotfiles install` doesn't change power settings.
+
+A locked screen doesn't stop anything. Background jobs and LaunchAgents keep running in the logged-in session. System sleep stops them. So keep the system awake on power, and let the display sleep and lock:
+
+```bash
+sudo pmset -c sleep 0
+```
+
+`-c` applies only on power, so the Mac still sleeps on battery. In System Settings this is Battery → Options → "Prevent automatic sleeping on power adapter when the display is off". Check it with `pmset -g custom`; under AC Power, `sleep` should be `0`.
+
+Leave the rest:
+
+- `displaysleep`: any value. The display turning off doesn't stop work.
+- Screen lock: Lock Screen → "Require password after screen saver begins or display is turned off". Check the delay with `sysadminctl -screenLock status`.
+- `womp` (wake for network access): on.
+
+Keep the lid open. A closed MacBook sleeps unless it has an external display, keyboard and power.
+
+Restarts are the gap. With FileVault on, the Mac waits at the unlock screen after a restart, and nothing runs until you log in. A LaunchDaemon doesn't help: FileVault blocks the boot before any daemon starts.
+
+- Turn off automatic macOS installs (General → Software Update → Automatic Updates), so an overnight update can't restart it. Keep automatic downloads on.
+- For a restart you start yourself, `sudo fdesetup authrestart` unlocks FileVault once, so the Mac comes back logged in.
+
 ## The old GPG key (historical)
 
 Commits were GPG-signed through 2026 with `79007EFD4678CB94` (RSA 4096, expires 2028-07-19). Dashlane holds the only copy of both halves. This tool no longer uses it.
