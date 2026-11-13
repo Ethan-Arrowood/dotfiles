@@ -4,7 +4,7 @@ An audit guide. [README.md](README.md) covers usage.
 
 ## The install loop
 
-[`layer.rs`](src/layer.rs) defines layers and their install order. Profiles name layers. [`main.rs`](src/main.rs) resolves the profile, `--with` and `--without`, then runs:
+[`layer.rs`](src/layer.rs) defines layers and their install order. Profiles name layers. [`main.rs`](src/main.rs) resolves the profile, `--with` and `--without`. With none of them, it repeats the profile and layers recorded in `~/.config/dotfiles/init.sh`. Then it runs:
 
 ```rust
 let mut claimed = skills::Claimed::new();
@@ -74,7 +74,7 @@ Other changes:
 - `~/.ssh/allowed_signers`: [`signing.rs`](src/signing.rs) appends a missing key by rewriting the file, without a backup. It leaves unreadable files alone.
 - `<src_root>/<org>/CLAUDE.md`: [`claude.rs`](src/claude.rs) backs up an old one-line org import only when an `AGENTS.md` link replaces it. Other content stays.
 - `~/.claude/settings.json`, `~/.codex/hooks.json`: [`hooks.rs`](src/hooks.rs) merges missing entries, preserves key order, backs up once per run and writes atomically. Parse errors or wrong value shapes warn without changing the file. Writes preserve permissions and follow existing symlinks to their targets.
-- Repos: [`skills.rs`](src/skills.rs) clones Skillfile repos under `$DOTFILES_SRC_DIR` (default `~/dev`). [`work_harper.rs`](src/layers/work_harper.rs) also clones dispatch there. Neither pulls existing checkouts. Both set an HTTPS `origin` that names the same repo to its ssh URL through [`github::use_ssh_origin`](src/github.rs), once an ssh probe to GitHub authenticates. Only `remote.origin.url` changes; `pushurl` stays.
+- Repos: [`skills.rs`](src/skills.rs) clones Skillfile repos under `$DOTFILES_SRC_DIR` (default `~/dev`). [`work_harper.rs`](src/layers/work_harper.rs) also clones dispatch there. Neither pulls existing checkouts. Both set an HTTPS `origin` that names the same repo to its ssh URL through [`github::use_ssh_origin`](src/github.rs), once an ssh probe to GitHub authenticates. Only `remote.origin.url` changes; `pushurl` stays. When anonymous HTTPS fails and `gh` or ssh isn't set up, [`github::offer_setup`](src/github.rs) offers `gh auth login` and `dotfiles github` once per run. It asks only with a terminal, and `allow_global_changes` guards it.
 - This repo's checkout: [`github.rs`](src/github.rs), only when you run `dotfiles github` and ssh authenticates, sets an HTTPS `origin` to ssh. A shallow clone gets `git fetch --unshallow`, and a single-branch one gets `git remote set-branches origin '*'` and a fetch.
 - SSH keys: [`core.rs`](src/layers/core.rs) invokes `ssh-keygen` for `$DOTFILES_SSH_KEY` (default `~/.ssh/id_ed25519`) and its `.pub` file. It skips generation in containers or without a terminal for the passphrase. [`signing.rs`](src/signing.rs) reads only the public half.
 - Hooks: [`hooks.rs`](src/hooks.rs) runs SessionStart scripts once per install or relink. It creates their destination directories and sets the agent config variable and `AGENTIC_DEV_DIR`. agentic manages `~/.codex/AGENTS.md`, `~/.agents/skills/` and its Claude rule and skill links. See [agentic](https://github.com/Ethan-Arrowood/agentic) for script behavior.
@@ -140,7 +140,7 @@ When org links exist, the tool sets `pluginConfigs."cc-plugin-agents-md@builtin"
 | [`sys.rs`](src/sys.rs) | Account home and shell resolve, trailing-slash `$HOME`, unknown home blocks changes, only override `1` counts |
 | [`shellinit.rs`](src/shellinit.rs) | zsh guards, no runtime globbing, quoted roots, fragment names and profiles |
 | [`brew.rs`](src/brew.rs) | Comments, malformed lines, namespaced formulas, cask apps/receipts/commands, `brew shellenv` imports `PATH` |
-| [`skills.rs`](src/skills.rs) | Entry parsing, `#` separators, malformed lines, known hook agents, lowercase owners, discovery depth and exclusions, clone fallbacks stop at the first success, failure reasons |
+| [`skills.rs`](src/skills.rs) | Entry parsing, `#` separators, malformed lines, known hook agents, lowercase owners, discovery depth and exclusions, clone fallbacks stop at the first success, setup offered only after the anonymous attempt fails, failure reasons |
 | [`hooks.rs`](src/hooks.rs) | Existing hooks and key order preserved, idempotence, aliases, malformed shapes, Codex `startup` matcher |
 | [`claude.rs`](src/claude.rs) | Org links only in existing directories, old imports backed up, user files and plugin choices preserved |
 | [`layer.rs`](src/layer.rs) | Unique names, asset directories, mandatory `core`, README struct example |
@@ -149,7 +149,8 @@ When org links exist, the tool sets `pluginConfigs."cc-plugin-agents-md@builtin"
 | [`mac_base.rs`](src/layers/mac_base.rs) | Shipped Defaultsfile and Shortcuts.json, comments, malformed lines, typed plist values |
 | [`dock.rs`](src/dock.rs) | Paths with spaces, flags, plist paths, stray percent signs |
 | [`signing.rs`](src/signing.rs) | `.pub` appended, Git config quoting |
-| [`github.rs`](src/github.rs) | Key matches include type, ssh URLs only for the same repo in any case, `origin` switch waits for ssh, skips dry runs, keeps `pushurl` and runs once, shallow and single-branch clones get full history and every branch |
+| [`main.rs`](src/main.rs) | Recorded layers become `--with`/`--without`, re-run command flags |
+| [`github.rs`](src/github.rs) | Key matches include type, setup offered only with gh, a terminal and missing access, ssh URLs only for the same repo in any case, `origin` switch waits for ssh, skips dry runs, keeps `pushurl` and runs once, shallow and single-branch clones get full history and every branch |
 | [`ctx.rs`](src/ctx.rs) | Recorded root survives shell quoting |
 | [`tmpdir.rs`](src/tmpdir.rs) | 0700 mode, exclusive creation, cleanup |
 

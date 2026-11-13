@@ -69,6 +69,15 @@ pub fn detail(msg: &str) {
     }
 }
 
+/// Whether there is a terminal to prompt on, even when stdin is a pipe.
+pub fn has_terminal() -> bool {
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/tty")
+        .is_ok()
+}
+
 /// Ask for consent. Without a terminal, return false unless assume_yes is set.
 pub fn confirm(question: &str, assume_yes: bool) -> bool {
     if assume_yes {
