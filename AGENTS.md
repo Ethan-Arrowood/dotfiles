@@ -27,7 +27,7 @@ CI's `core-on-linux` job installs core in a container. It checks installed files
 
 ## Design
 
-- Layers opt in through plain-text files (`Brewfile`, `Skillfile`, `Defaultsfile`, `Dockfile`, `home/`). Prefer a new line in a file over new code.
+- Layers opt in through plain-text files (`Brewfile`, `Skillfile`, `Defaultsfile`, `Dockfile`, `Npmfile`, `home/`). Prefer a new line in a file over new code.
 - Write logic in Rust, not shell. [`install.sh`](install.sh) only bootstraps the binary.
 - A second run changes nothing. Report malformed config lines with line numbers. Do not skip them silently.
 - Merge files that an agent or I also edit (`~/.claude/settings.json`, `~/.codex/hooks.json`). Never replace them.
