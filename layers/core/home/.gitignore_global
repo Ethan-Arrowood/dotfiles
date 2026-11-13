@@ -22,3 +22,8 @@ Icon?
 # Environment
 .env.local
 .direnv/
+
+# node-core-utils config and working directory; both can hold tokens
+.ncurc
+.ncurc.gpg
+.ncu

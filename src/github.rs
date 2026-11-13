@@ -53,7 +53,7 @@ fn ensure_scope(ctx: &Ctx, want: &str) -> bool {
 
 /// Check registration by key type. `None` means unknown, not absent.
 /// Without the signing scope, gh lists auth keys and exits 0 with a stderr warning.
-fn registered(pubkey_body: &str, kind: Option<&str>) -> Option<bool> {
+pub(crate) fn registered(pubkey_body: &str, kind: Option<&str>) -> Option<bool> {
     let out = Cmd::new("gh").args(["ssh-key", "list"]).capture().ok()?;
     if !out.ok {
         return None;

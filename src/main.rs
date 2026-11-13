@@ -217,11 +217,8 @@ fn next_steps(ctx: &Ctx) {
             steps.push("then register your keys:  dotfiles github".into());
         } else if let Some(pk) = &pubkey {
             let body = pk.split_whitespace().nth(1).unwrap_or_default();
-            let listed = sys::Cmd::new("gh").args(["ssh-key", "list"]).capture();
-            if let Ok(c) = listed {
-                if c.ok && !c.stdout.contains(body) {
-                    steps.push("register your ssh key with GitHub:  dotfiles github".into());
-                }
+            if github::registered(body, None) == Some(false) {
+                steps.push("register your ssh key with GitHub:  dotfiles github".into());
             }
         }
     }
@@ -245,19 +242,25 @@ fn next_steps(ctx: &Ctx) {
         // GitHub needs a separate signing-key upload for Verified commits.
         if let Some(pk) = &pubkey {
             let body = pk.split_whitespace().nth(1).unwrap_or_default();
-            if let Ok(c) = sys::Cmd::new("gh")
-                .args(["ssh-key", "list", "--type", "signing"])
-                .capture()
-            {
-                if c.ok && !c.stdout.contains(body) {
-                    steps.push(
-                        "commits sign locally but GitHub shows Unverified until the key is\n      \
-                         uploaded as a SIGNING key too:  dotfiles github"
-                            .into(),
-                    );
-                }
+            // None (can't tell, usually the signing scope) stays quiet.
+            if github::registered(body, Some("signing")) == Some(false) {
+                steps.push(
+                    "commits sign locally but GitHub shows Unverified until the key is\n      \
+                     uploaded as a SIGNING key too:  dotfiles github"
+                        .into(),
+                );
             }
         }
+    }
+
+    if layers::mac_langs::ncu_config_missing(ctx) {
+        steps.push(
+            "set up node-core-utils (ncu-ci, git-node); each command prompts for its value:\n      \
+             ncu-config set username <github-login>\n      \
+             ncu-config set token           # GitHub token: user:email, read:org\n      \
+             ncu-config set jenkins_token   # from ci.nodejs.org/user/<login>/security"
+                .into(),
+        );
     }
 
     if steps.is_empty() {

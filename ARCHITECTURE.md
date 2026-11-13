@@ -142,7 +142,7 @@ When org links exist, the tool sets `pluginConfigs."cc-plugin-agents-md@builtin"
 | [`hooks.rs`](src/hooks.rs) | Existing hooks and key order preserved, idempotence, aliases, malformed shapes, Codex `startup` matcher |
 | [`claude.rs`](src/claude.rs) | Org links only in existing directories, old imports backed up, user files and plugin choices preserved |
 | [`layer.rs`](src/layer.rs) | Unique names, asset directories, mandatory `core`, README struct example |
-| [`mac_langs.rs`](src/layers/mac_langs.rs) | `~/.npmrc` merge keeps other lines and is idempotent, shipped Npmfile parses, extra words reported |
+| [`mac_langs.rs`](src/layers/mac_langs.rs) | `~/.npmrc` merge keeps other lines and is idempotent, shipped Npmfile parses, extra words reported, `~/.ncurc` detected by presence only |
 | [`mac_base.rs`](src/layers/mac_base.rs) | Shipped Defaultsfile and Shortcuts.json, comments, malformed lines, typed plist values |
 | [`dock.rs`](src/dock.rs) | Paths with spaces, flags, plist paths, stray percent signs |
 | [`signing.rs`](src/signing.rs) | `.pub` appended, Git config quoting |

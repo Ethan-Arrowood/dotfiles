@@ -128,6 +128,12 @@ Repos clone to `$DOTFILES_SRC_DIR/<owner>/<repo>` (default `~/dev`), with lowerc
 
 Skills link to those editable checkouts, so edits apply without syncing. The first layer claiming a skill name wins. Local skill directories stay untouched. Remove `harperfast/skills-internal` from the work Skillfile on machines not used for Harper contribution.
 
+## Node.js core tools
+
+`mac-langs` installs `@node-core/utils` (`ncu-ci`, `git-node`). Its config, `~/.ncurc`, holds a GitHub token and a Jenkins token, so it stays out of this repo. When it's missing, `dotfiles install` lists the `ncu-config` commands to run and `dotfiles doctor` warns. Each command prompts for its value.
+
+Use a dedicated GitHub token with the `user:email` and `read:org` scopes, kept in Dashlane. `gh`'s own token lacks `user:email` and grants much more. The Jenkins token comes from `https://ci.nodejs.org/user/<login>/security`.
+
 ## Machine-local escape hatches
 
 | File | Purpose |
