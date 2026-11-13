@@ -55,7 +55,7 @@ Links through [`link::link_file`](src/link.rs):
 | Ghostty config, VS Code CLI | `~/.config/ghostty/config`, `~/.local/bin/code` | [`mac_apps.rs`](src/layers/mac_apps.rs) |
 | dispatch client | `~/.local/bin/dispatch` | [`work_harper.rs`](src/layers/work_harper.rs) |
 
-Generated state lives in `~/.config/dotfiles/`, regardless of `XDG_CONFIG_HOME`. Git includes use literal paths and cannot expand that variable.
+Generated state lives in `~/.config/dotfiles/`, regardless of `XDG_CONFIG_HOME`. Git includes use literal paths and cannot expand that variable. The paths in [`.gitconfig`](layers/core/home/.gitconfig) are relative, so git resolves them against the symlink's directory (`~`). A process with another `HOME` that includes `~/.gitconfig` by absolute path, such as a dispatch run, still finds them.
 
 | File | Writer |
 | --- | --- |
