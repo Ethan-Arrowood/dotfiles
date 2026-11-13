@@ -17,7 +17,7 @@ dock::apply(ctx, &selected)?;
 shellinit::write(ctx, &profile, &selected)?;
 ```
 
-[`Ctx`](src/ctx.rs) carries the repo root, `$HOME`, backup and state directories, and `dry_run`, `assume_yes`, `update` and `signing`. Only `install` changes those flags. Other commands use the defaults.
+[`Ctx`](src/ctx.rs) carries the repo root, `$HOME`, backup and state directories, and `dry_run`, `assume_yes`, `update`, `signing` and `verbose`. Only `install` changes those flags, except `verbose`, which every command takes. Other commands use the defaults.
 
 [`find_root`](src/ctx.rs) requires a `layers/` directory. It checks `$DOTFILES_ROOT`, paths relative to the binary, the current directory, then the root recorded in `~/.config/dotfiles/init.sh`. [`install.sh`](install.sh) exports `DOTFILES_ROOT` before invoking the binary.
 
@@ -139,7 +139,7 @@ When org links exist, the tool sets `pluginConfigs."cc-plugin-agents-md@builtin"
 | [`sys.rs`](src/sys.rs) | Account home and shell resolve, trailing-slash `$HOME`, unknown home blocks changes, only override `1` counts |
 | [`shellinit.rs`](src/shellinit.rs) | zsh guards, no runtime globbing, quoted roots, fragment names and profiles |
 | [`brew.rs`](src/brew.rs) | Comments, malformed lines, namespaced formulas, cask apps/receipts/commands, `brew shellenv` imports `PATH` |
-| [`skills.rs`](src/skills.rs) | Entry parsing, `#` separators, malformed lines, known hook agents, lowercase owners, discovery depth and exclusions |
+| [`skills.rs`](src/skills.rs) | Entry parsing, `#` separators, malformed lines, known hook agents, lowercase owners, discovery depth and exclusions, clone fallbacks stop at the first success, failure reasons |
 | [`hooks.rs`](src/hooks.rs) | Existing hooks and key order preserved, idempotence, aliases, malformed shapes, Codex `startup` matcher |
 | [`claude.rs`](src/claude.rs) | Org links only in existing directories, old imports backed up, user files and plugin choices preserved |
 | [`layer.rs`](src/layer.rs) | Unique names, asset directories, mandatory `core`, README struct example |
