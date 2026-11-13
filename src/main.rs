@@ -273,10 +273,31 @@ fn install(ctx: &Ctx, args: InstallArgs) -> Result<()> {
                 ctx.pretty(&ctx.backup_dir)
             );
         }
-        println!("  open a new shell, or: exec zsh");
+        let ghostty = sys::is_macos() && std::path::Path::new("/Applications/Ghostty.app").is_dir();
+        println!(
+            "  {}",
+            open_shell_hint(
+                std::env::var("TERM_PROGRAM").ok().as_deref(),
+                std::env::var_os("SSH_CONNECTION").is_some(),
+                ghostty,
+            )
+        );
         next_steps(ctx, &rerun_command(&sel, &args));
     }
     Ok(())
+}
+
+/// How to start using the setup. A plain `exec zsh` is not a login shell, so it
+/// skips ~/.zprofile, where Homebrew's shellenv runs. Ghostty starts login
+/// shells on macOS.
+fn open_shell_hint(term_program: Option<&str>, over_ssh: bool, ghostty: bool) -> &'static str {
+    if term_program == Some("ghostty") {
+        "open a new Ghostty window to load this setup"
+    } else if ghostty && !over_ssh {
+        "open Ghostty to start using this setup"
+    } else {
+        "open a new shell, or: exec zsh -l"
+    }
 }
 
 /// Print remaining setup steps, if any. `rerun` repeats this install.
@@ -455,6 +476,24 @@ mod tests {
 
     fn strings(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn the_closing_hint_prefers_ghostty_and_login_shells() {
+        let ghostty = "open Ghostty to start using this setup";
+        let login = "open a new shell, or: exec zsh -l";
+        assert_eq!(
+            open_shell_hint(Some("Apple_Terminal"), false, true),
+            ghostty
+        );
+        assert_eq!(open_shell_hint(None, false, true), ghostty);
+        assert_eq!(
+            open_shell_hint(Some("ghostty"), false, true),
+            "open a new Ghostty window to load this setup"
+        );
+        // Core-only machines, containers and ssh sessions.
+        assert_eq!(open_shell_hint(Some("Apple_Terminal"), false, false), login);
+        assert_eq!(open_shell_hint(None, true, true), login);
     }
 
     #[test]

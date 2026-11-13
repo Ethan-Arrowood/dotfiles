@@ -149,7 +149,7 @@ When org links exist, the tool sets `pluginConfigs."cc-plugin-agents-md@builtin"
 | [`mac_base.rs`](src/layers/mac_base.rs) | Shipped Defaultsfile and Shortcuts.json, comments, malformed lines, typed plist values |
 | [`dock.rs`](src/dock.rs) | Paths with spaces, flags, plist paths, stray percent signs |
 | [`signing.rs`](src/signing.rs) | `.pub` appended, Git config quoting |
-| [`main.rs`](src/main.rs) | Recorded layers become `--with`/`--without`, re-run command flags |
+| [`main.rs`](src/main.rs) | Recorded layers become `--with`/`--without`, re-run command flags, closing hint picks Ghostty or a login shell |
 | [`github.rs`](src/github.rs) | Key matches include type, setup offered only with gh, a terminal and missing access, ssh URLs only for the same repo in any case, `origin` switch waits for ssh, skips dry runs, keeps `pushurl` and runs once, shallow and single-branch clones get full history and every branch |
 | [`ctx.rs`](src/ctx.rs) | Recorded root survives shell quoting |
 | [`tmpdir.rs`](src/tmpdir.rs) | 0700 mode, exclusive creation, cleanup |

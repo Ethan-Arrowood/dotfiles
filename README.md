@@ -16,6 +16,8 @@ dotfiles install --profile mac-dev
 
 On a fresh Mac, install Apple's Command Line Tools when prompted, then rerun the command. [`install.sh`](install.sh) clones or updates the repo at `$DOTFILES_SRC_DIR/<owner>/<repo>`, default `~/dev/ethan-arrowood/dotfiles`, and downloads a prebuilt binary. `DOTFILES_ROOT` overrides the location. If the download fails or the platform needs a source build, it uses `cargo build` if available.
 
+When the install finishes, open Ghostty (`mac-apps` installs it and adds it to the Dock). Without Ghostty, run `exec zsh -l`. A plain `exec zsh` skips `~/.zprofile`, so Homebrew's commands aren't on `PATH`.
+
 Use `--dry-run` (`-n`) to preview CLI changes. The bootstrap script still downloads the repo and binary. Repeated installs skip matching links, generated files, defaults and installed toolchains. `--update` refreshes rustup and uv. Software Update handles installed Xcode Command Line Tools.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the install loop, file inventory, guards and tests.
