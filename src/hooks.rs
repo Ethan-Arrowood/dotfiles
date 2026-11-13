@@ -23,6 +23,74 @@ impl Agent {
         }
     }
 
+    pub fn name(self) -> &'static str {
+        match self {
+            Agent::Claude => "claude",
+            Agent::Codex => "codex",
+        }
+    }
+
+    /// Event names the agent reads from its hooks file. Other names never fire.
+    pub fn events(self) -> &'static [&'static str] {
+        match self {
+            // https://code.claude.com/docs/en/hooks, checked against the
+            // event list in the Claude Code 2.1.325 binary.
+            Agent::Claude => &[
+                "SessionStart",
+                "Setup",
+                "UserPromptSubmit",
+                "UserPromptExpansion",
+                "PreToolUse",
+                "PermissionRequest",
+                "PermissionDenied",
+                "PostToolUse",
+                "PostToolUseFailure",
+                "PostToolBatch",
+                "Notification",
+                "MessageDisplay",
+                "SubagentStart",
+                "SubagentStop",
+                "TaskCreated",
+                "TaskCompleted",
+                "Stop",
+                "StopFailure",
+                "TeammateIdle",
+                "InstructionsLoaded",
+                "ConfigChange",
+                "CwdChanged",
+                "DirectoryAdded",
+                "FileChanged",
+                "WorktreeCreate",
+                "WorktreeRemove",
+                "PreCompact",
+                "PostCompact",
+                "PreModelSwitch",
+                "PostModelSwitch",
+                "Elicitation",
+                "ElicitationResult",
+                "SessionEnd",
+            ],
+            // https://developers.openai.com/codex/hooks and `HookEventsToml` in
+            // codex-rs/protocol/src/hooks.rs at rust-v0.169.0.
+            Agent::Codex => &[
+                "SessionStart",
+                "SessionEnd",
+                "UserPromptSubmit",
+                "PreModelRequest",
+                "PostModelRequest",
+                "PreToolUse",
+                "PermissionRequest",
+                "PostToolUse",
+                "PreCompact",
+                "PostCompact",
+                "SubagentStart",
+                "SubagentStop",
+                "Stop",
+                "Interrupt",
+            ],
+        }
+    }
+
     fn config_dir(self, ctx: &Ctx) -> PathBuf {
         match self {
             Agent::Claude => ctx.home.join(".claude"),
