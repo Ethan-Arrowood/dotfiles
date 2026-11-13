@@ -39,7 +39,7 @@ Layers opt in by shipping files. `home/` and `Skillfile` processing runs for eve
 
 The Dock stays unchanged when its paths match and its flags match `~/.config/dotfiles/dock.applied`. The plist's numeric settings do not map directly to `dockutil` flags, so the tool records the last successful specification.
 
-Helpers: [`ui::{head,step,ok,skip,warn,detail}`](src/ui.rs), [`link::{link_file,link_home_dir,write_file}`](src/link.rs), [`brew::bundle`](src/brew.rs), [`sys::{has,which,is_macos,is_container,allow_global_changes}`](src/sys.rs).
+Helpers: [`ui::{head,step,ok,skip,warn,detail}`](src/ui.rs), [`link::{link_file,link_home_dir,write_file}`](src/link.rs), [`brew::bundle`](src/brew.rs), [`sys::{has,which,is_macos,is_container,has_terminal,allow_global_changes}`](src/sys.rs).
 
 ## Everything that touches $HOME
 
@@ -138,7 +138,7 @@ When org links exist, the tool sets `pluginConfigs."cc-plugin-agents-md@builtin"
 | [`link.rs`](src/link.rs) | Idempotence, backup content and collisions, real directories preserved, dangling links, backup overwrite refusal |
 | [`sys.rs`](src/sys.rs) | Account home and shell resolve, trailing-slash `$HOME`, unknown home blocks changes, only override `1` counts |
 | [`shellinit.rs`](src/shellinit.rs) | zsh guards, no runtime globbing, quoted roots, fragment names and profiles |
-| [`brew.rs`](src/brew.rs) | Comments, malformed lines, namespaced formulas, cask apps/receipts/commands, `brew shellenv` imports `PATH` |
+| [`brew.rs`](src/brew.rs) | Comments, malformed lines, namespaced formulas, cask apps/receipts/commands, `brew shellenv` imports `PATH`, `sudo -v` prompts only with a terminal and never as root |
 | [`skills.rs`](src/skills.rs) | Entry parsing, `#` separators, malformed lines, known hook agents, lowercase owners, discovery depth and exclusions |
 | [`hooks.rs`](src/hooks.rs) | Existing hooks and key order preserved, idempotence, aliases, malformed shapes, Codex `startup` matcher |
 | [`claude.rs`](src/claude.rs) | Org links only in existing directories, old imports backed up, user files and plugin choices preserved |

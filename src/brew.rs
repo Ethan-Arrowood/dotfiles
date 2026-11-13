@@ -106,10 +106,15 @@ pub fn ensure_installed(ctx: &Ctx) -> Result<()> {
         ui::skip("homebrew (already installed)");
         return Ok(());
     }
+    let sudo = sudo_check(sys::is_root(), sys::has_terminal());
     if ctx.dry_run {
+        if sudo == SudoCheck::Prompt {
+            ui::dry("sudo -v (asks for your password)");
+        }
         ui::dry("install homebrew");
         return Ok(());
     }
+    cache_sudo(ctx, sudo)?;
     ui::step("installing homebrew");
     // `bash -c "$(curl …)"` fails the same way a pipe does: if curl fails the
     // substitution is empty, bash runs nothing and exits 0.
@@ -126,6 +131,55 @@ pub fn ensure_installed(ctx: &Ctx) -> Result<()> {
     }
     load_shellenv()?;
     Ok(())
+}
+
+/// How to get sudo credentials cached for Homebrew's installer. With
+/// `NONINTERACTIVE=1` it only checks for cached credentials and never prompts.
+#[derive(Debug, PartialEq, Eq)]
+enum SudoCheck {
+    /// Running as root.
+    NotNeeded,
+    /// Run `sudo -v` so the password prompt comes from sudo on the terminal.
+    Prompt,
+    /// No terminal to prompt on: only cached credentials can work.
+    CachedOnly,
+}
+
+fn sudo_check(is_root: bool, has_terminal: bool) -> SudoCheck {
+    match (is_root, has_terminal) {
+        (true, _) => SudoCheck::NotNeeded,
+        (false, true) => SudoCheck::Prompt,
+        (false, false) => SudoCheck::CachedOnly,
+    }
+}
+
+fn cache_sudo(ctx: &Ctx, check: SudoCheck) -> Result<()> {
+    match check {
+        SudoCheck::NotNeeded => Ok(()),
+        SudoCheck::Prompt => {
+            if !Cmd::new("sudo")
+                .arg("-v")
+                .run(ctx, "sudo -v (Homebrew's installer needs admin rights)")?
+            {
+                anyhow::bail!("sudo -v failed; installing Homebrew needs an admin account");
+            }
+            Ok(())
+        }
+        SudoCheck::CachedOnly => {
+            // `-n` never prompts; it fails unless credentials are cached.
+            let cached = Cmd::new("sudo")
+                .args(["-n", "-v"])
+                .capture()
+                .is_ok_and(|c| c.ok);
+            if !cached {
+                anyhow::bail!(
+                    "installing Homebrew needs sudo, and there is no terminal to ask \
+                     for a password on. Run `sudo -v`, then rerun `dotfiles install`."
+                );
+            }
+            Ok(())
+        }
+    }
 }
 
 fn brew_cmd() -> Cmd {
@@ -392,6 +446,14 @@ mod tests {
                 commands: vec!["agy".into(), "codex".into()],
             }
         );
+    }
+
+    #[test]
+    fn sudo_prompts_only_with_a_terminal_and_never_as_root() {
+        assert_eq!(sudo_check(true, true), SudoCheck::NotNeeded);
+        assert_eq!(sudo_check(true, false), SudoCheck::NotNeeded);
+        assert_eq!(sudo_check(false, true), SudoCheck::Prompt);
+        assert_eq!(sudo_check(false, false), SudoCheck::CachedOnly);
     }
 
     #[test]

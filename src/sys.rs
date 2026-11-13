@@ -150,10 +150,19 @@ impl Capture {
     }
 }
 
+pub fn is_root() -> bool {
+    (unsafe { libc_geteuid() }) == 0
+}
+
+/// Is there a terminal to prompt on? Checks /dev/tty rather than stdin, so a
+/// piped run (`curl | sh`) still counts.
+pub fn has_terminal() -> bool {
+    std::fs::File::open("/dev/tty").is_ok()
+}
+
 /// Run as root, use sudo, or refuse. Root containers may lack sudo.
 pub fn as_root(ctx: &Ctx, desc: &str, program: &str, args: &[&str]) -> Result<bool> {
-    let am_root = unsafe { libc_geteuid() } == 0;
-    if am_root {
+    if is_root() {
         Cmd::new(program).args(args.iter().copied()).run(ctx, desc)
     } else if has("sudo") {
         Cmd::new("sudo")

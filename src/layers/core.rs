@@ -167,7 +167,7 @@ fn ssh_key(ctx: &Ctx) -> Result<()> {
     }
     // -y accepts yes/no prompts but still allows passphrase input.
     // Key generation needs a terminal for that input.
-    if !Path::new("/dev/tty").exists() || std::fs::File::open("/dev/tty").is_err() {
+    if !sys::has_terminal() {
         ui::warn(&format!(
             "no ssh key at {} and no terminal to set a passphrase on:",
             ctx.pretty(&key)

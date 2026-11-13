@@ -83,7 +83,7 @@ pub fn run(ctx: &Ctx) -> Result<()> {
     let have = keys(&cfg);
     let needs_tokens =
         !have.iter().any(|k| k == "token") || !have.iter().any(|k| k == "jenkins_token");
-    if needs_tokens && std::fs::File::open("/dev/tty").is_err() {
+    if needs_tokens && !sys::has_terminal() {
         bail!("no terminal to read tokens from; run `dotfiles ncu` in a terminal");
     }
     let has = |k: &str| have.iter().any(|h| h == k);
