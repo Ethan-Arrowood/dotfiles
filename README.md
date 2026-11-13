@@ -62,6 +62,7 @@ dotfiles install --profile core --with mac-apps
 | `dotfiles link` | Re-link `home/` files and reapply Skillfiles, without packages. Use `dotfiles install` for SSH and app links |
 | `dotfiles doctor` | Check tools, SSH, signing and broken links |
 | `dotfiles github` | Register and verify SSH authentication and signing keys |
+| `dotfiles ncu` | Set up this machine's node-core-utils tokens |
 
 ### Safety
 
@@ -130,9 +131,13 @@ Skills link to those editable checkouts, so edits apply without syncing. The fir
 
 ## Node.js core tools
 
-`mac-langs` installs `@node-core/utils` (`ncu-ci`, `git-node`). Its config, `~/.ncurc`, holds a GitHub token and a Jenkins token, so it stays out of this repo. When it's missing, `dotfiles install` lists the `ncu-config` commands to run and `dotfiles doctor` warns. Each command prompts for its value.
+`mac-langs` installs `@node-core/utils` (`ncu-ci`, `git-node`). Its config holds a GitHub token and a Jenkins token, so it stays out of this repo. Like the ssh key, each machine gets its own tokens:
 
-Use a dedicated GitHub token with the `user:email` and `read:org` scopes, kept in Dashlane. `gh`'s own token lacks `user:email` and grants much more. The Jenkins token comes from `https://ci.nodejs.org/user/<login>/security`.
+```bash
+dotfiles ncu
+```
+
+It sets your username from `gh`, then opens two pages. On GitHub, the new classic token already has `user:email` and `read:org` ticked and is named after the machine: pick an expiry, generate it, and paste it at the hidden prompt. On ci.nodejs.org, add an API token and paste that too. The config ends up at `~/.config/ncurc` (ncu reads `$XDG_CONFIG_HOME/ncurc`, which `.zshenv` sets), mode `0600`. An existing `~/.ncurc` moves there. `dotfiles install` and `dotfiles doctor` point here while the config is missing.
 
 ## Machine-local escape hatches
 

@@ -70,6 +70,7 @@ Other changes:
 
 - `~/.ssh/config`: [`core.rs`](src/layers/core.rs) prepends `Include ~/.ssh/config.d/*` after copying the original to the backup directory. It replaces broken symlinks and leaves unreadable files alone.
 - `~/.npmrc`: [`mac_langs.rs`](src/layers/mac_langs.rs) merges the keys in [`layers/mac-langs/npmrc`](layers/mac-langs/npmrc), including the shared global prefix `~/.npm-global`, which it creates. Other lines, such as npm's registry auth token, stay. A changed file is backed up first; a link from an older install is replaced with a real file.
+- `~/.config/ncurc` ([`ncu.rs`](src/ncu.rs)), only when you run `dotfiles ncu`: moves an existing `~/.ncurc` there, sets missing keys through `ncu-config` with tokens read at a hidden prompt and passed on stdin (ncu echoes values, so its output is discarded), then sets mode 0600.
 - `~/.ssh/allowed_signers`: [`signing.rs`](src/signing.rs) appends a missing key by rewriting the file, without a backup. It leaves unreadable files alone.
 - `<src_root>/<org>/CLAUDE.md`: [`claude.rs`](src/claude.rs) backs up an old one-line org import only when an `AGENTS.md` link replaces it. Other content stays.
 - `~/.claude/settings.json`, `~/.codex/hooks.json`: [`hooks.rs`](src/hooks.rs) merges missing entries, preserves key order, backs up once per run and writes atomically. Parse errors or wrong value shapes warn without changing the file. Writes preserve permissions and follow existing symlinks to their targets.
@@ -142,7 +143,8 @@ When org links exist, the tool sets `pluginConfigs."cc-plugin-agents-md@builtin"
 | [`hooks.rs`](src/hooks.rs) | Existing hooks and key order preserved, idempotence, aliases, malformed shapes, Codex `startup` matcher |
 | [`claude.rs`](src/claude.rs) | Org links only in existing directories, old imports backed up, user files and plugin choices preserved |
 | [`layer.rs`](src/layer.rs) | Unique names, asset directories, mandatory `core`, README struct example |
-| [`mac_langs.rs`](src/layers/mac_langs.rs) | `~/.npmrc` merge keeps other lines and is idempotent, shipped Npmfile parses, extra words reported, `~/.ncurc` detected by presence only |
+| [`mac_langs.rs`](src/layers/mac_langs.rs) | `~/.npmrc` merge keeps other lines and is idempotent, shipped Npmfile parses, extra words reported |
+| [`ncu.rs`](src/ncu.rs) | missing config detected where ncu reads it (not `~/.ncurc`), only key names read, URL encoding |
 | [`mac_base.rs`](src/layers/mac_base.rs) | Shipped Defaultsfile and Shortcuts.json, comments, malformed lines, typed plist values |
 | [`dock.rs`](src/dock.rs) | Paths with spaces, flags, plist paths, stray percent signs |
 | [`signing.rs`](src/signing.rs) | `.pub` appended, Git config quoting |

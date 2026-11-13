@@ -10,6 +10,7 @@ mod hooks;
 mod layer;
 mod layers;
 mod link;
+mod ncu;
 mod shellinit;
 mod signing;
 mod skills;
@@ -49,6 +50,8 @@ enum Command {
     /// Register this machine's ssh key with GitHub (auth + signing)
     #[command(alias = "gh")]
     Github,
+    /// Set up node-core-utils (ncu-ci, git-node) credentials on this machine
+    Ncu,
 }
 
 #[derive(Args)]
@@ -107,6 +110,7 @@ fn real_main() -> Result<()> {
             Ok(())
         }
         Command::Github => github::run(&ctx),
+        Command::Ncu => ncu::run(&ctx),
     }
 }
 
@@ -253,14 +257,8 @@ fn next_steps(ctx: &Ctx) {
         }
     }
 
-    if layers::mac_langs::ncu_config_missing(ctx) {
-        steps.push(
-            "set up node-core-utils (ncu-ci, git-node); each command prompts for its value:\n      \
-             ncu-config set username <github-login>\n      \
-             ncu-config set token           # GitHub token: user:email, read:org\n      \
-             ncu-config set jenkins_token   # from ci.nodejs.org/user/<login>/security"
-                .into(),
-        );
+    if ncu::config_missing(ctx) {
+        steps.push("set up node-core-utils credentials:  dotfiles ncu".into());
     }
 
     if steps.is_empty() {

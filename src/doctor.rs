@@ -151,8 +151,8 @@ pub fn run(ctx: &Ctx) -> Result<bool> {
         ));
     }
 
-    if crate::layers::mac_langs::ncu_config_missing(ctx) {
-        r.warn("node-core-utils has no ~/.ncurc. Run `dotfiles install` for the setup steps");
+    if crate::ncu::config_missing(ctx) {
+        r.warn("node-core-utils has no config where ncu looks. Run: dotfiles ncu");
     }
 
     if sys::is_macos() {

@@ -132,25 +132,6 @@ fn parse_npmfile(text: &str) -> (Vec<String>, Vec<String>) {
     (pkgs, problems)
 }
 
-/// node-core-utils is installed but has no config. Its config holds GitHub
-/// and Jenkins tokens, so the tool only checks that a file exists, in any of
-/// the places ncu reads, and never reads or writes it.
-pub fn ncu_config_missing(ctx: &Ctx) -> bool {
-    let installed = ctx.home.join(".npm-global/bin/ncu-config").exists() || sys::has("ncu-config");
-    let xdg = std::env::var_os("XDG_CONFIG_HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| ctx.home.join(".config"));
-    let present = [
-        ctx.home.join(".ncurc"),
-        ctx.home.join(".ncurc.gpg"),
-        xdg.join("ncurc"),
-        xdg.join("ncurc.gpg"),
-    ]
-    .iter()
-    .any(|p| p.exists());
-    installed && !present
-}
-
 /// `key=value` lines, skipping blanks and `#`/`;` comments.
 fn ini_pairs(text: &str) -> Vec<(String, String)> {
     text.lines()
@@ -365,22 +346,6 @@ mod tests {
         let (pkgs, problems) = parse_npmfile(&std::fs::read_to_string(path).unwrap());
         assert!(problems.is_empty(), "{problems:?}");
         assert!(pkgs.contains(&"@node-core/utils".to_string()));
-    }
-
-    /// Presence only: the file is never read, so any content counts.
-    #[test]
-    fn ncu_config_is_missing_until_a_config_file_exists() {
-        let dir = crate::tmpdir::PrivateTempDir::new("ncutest").unwrap();
-        let mut ctx = Ctx::new(dir.join("repo")).unwrap();
-        ctx.home = dir.join("home");
-        let bin = ctx.home.join(".npm-global/bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        std::fs::write(bin.join("ncu-config"), "").unwrap();
-        if std::env::var_os("XDG_CONFIG_HOME").is_none() {
-            assert!(ncu_config_missing(&ctx));
-        }
-        std::fs::write(ctx.home.join(".ncurc"), "").unwrap();
-        assert!(!ncu_config_missing(&ctx));
     }
 
     #[test]
