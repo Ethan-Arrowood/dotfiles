@@ -46,7 +46,7 @@ dotfiles install --profile core --with mac-apps
 | Layer | Platform | Contents |
 | --- | --- | --- |
 | `core` | any | zsh, git, ssh, commit signing, aliases, functions |
-| `mac-base` | macOS | Xcode CLT, Homebrew, CLI tools, macOS defaults, keyboard and mouse shortcuts, Dock, computer name |
+| `mac-base` | macOS | Xcode CLT, Homebrew, CLI tools, macOS defaults, keyboard and mouse shortcuts, Dock, computer name, the local SSH agent in SSH logins |
 | `mac-langs` | macOS | Node (fnm, with one npm global prefix, `~/.npm-global`, shared by every version, and the globals in its [`Npmfile`](layers/mac-langs/Npmfile)), Rust (rustup), Python (uv), C/C++, Java |
 | `mac-apps` | macOS | Chrome, VS Code, Claude, Ghostty, Dashlane CLI |
 | `mac-apps-extra` | macOS | Slack, Zoom, Spotify, Discord, Podman, DaisyDisk |
@@ -260,6 +260,8 @@ Leave the rest:
 - `displaysleep`: any value. The display turning off doesn't stop work.
 - Screen lock: Lock Screen → "Require password after screen saver begins or display is turned off". Check the delay with `sysadminctl -screenLock status`.
 - `womp` (wake for network access): on.
+
+SSH logins into the Mac, including VS Code Remote-SSH terminals, get no agent or a forwarded one. Without the Mac's own agent, git over SSH and commit signing prompt for the key's passphrase. [`20-ssh-agent.zsh`](layers/mac-base/zsh/20-ssh-agent.zsh) points `SSH_AUTH_SOCK` at the launchd agent in those shells. It needs a GUI login, which the Mac has while it runs locked.
 
 Keep the lid open. A closed MacBook sleeps unless it has an external display, keyboard and power.
 
