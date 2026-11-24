@@ -69,6 +69,12 @@ pub fn registry() -> Vec<Layer> {
             install: layers::mac_apps_extra::install,
         },
         Layer {
+            name: "mac-desk",
+            description: "Desk monitor layout, restored at login and on wake. Opt-in.",
+            macos_only: true,
+            install: layers::mac_desk::install,
+        },
+        Layer {
             name: "work-harper",
             description:
                 "Codex, agy, gcloud, Tailscale, screen, dispatch, Harper aliases, LastPass. Opt-in.",

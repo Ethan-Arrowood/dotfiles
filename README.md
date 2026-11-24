@@ -50,6 +50,7 @@ dotfiles install --profile core --with mac-apps
 | `mac-langs` | macOS | Node (fnm, with one npm global prefix, `~/.npm-global`, shared by every version, and the globals in its [`Npmfile`](layers/mac-langs/Npmfile)), Rust (rustup), Python (uv), C/C++, Java |
 | `mac-apps` | macOS | Chrome, VS Code, Claude, Ghostty, Dashlane CLI |
 | `mac-apps-extra` | macOS | Slack, Zoom, Spotify, Discord, Podman, DaisyDisk |
+| `mac-desk` | macOS | Restores my desk monitor layout at login and on wake ([below](#desk-displays)). Opt-in |
 | `work-harper` | any | [dispatch](src/layers/work_harper.rs) client and Claude plugin, Harper aliases and skills. On macOS: Codex, Antigravity (`agy`), gcloud, Tailscale, LastPass, GNU screen. Opt-in; no identity override |
 
 `core` needs no Homebrew, Node or GUI. It skips optional shell integrations when absent. Other layers' Brewfiles need Homebrew; `mac-base` installs it.
@@ -161,6 +162,16 @@ It sets your username from `gh`, then opens two pages. On GitHub, the new classi
 | 176 | Unknown | Off |
 
 To name an unknown id, toggle a shortcut in System Settings > Keyboard > Keyboard Shortcuts and see which entry changes in `defaults read com.apple.symbolichotkeys AppleSymbolicHotKeys`.
+
+## Desk displays
+
+My MacBook runs in clamshell mode with two identical monitors on a Corsair TBT100 dock. It sometimes boots with them rotated wrong, at the wrong resolution, or with one as a generic display. `mac-desk` installs [`restore-displays`](layers/mac-desk/bin/restore-displays), which applies the layout with displayplacer and checks each monitor. Two LaunchAgents run it: once at login, and on every wake through sleepwatcher. Run it by hand with `displays`.
+
+```bash
+dotfiles install --profile mac-full --with mac-desk
+```
+
+A monitor with no serial id or no 4K mode failed its EDID read. Software can't fix that, so the script shows an alert asking you to power-cycle the monitor or replug the dock. Away from the desk it does nothing. It logs to `~/Library/Logs/restore-displays.log`. The layout and how to recapture it are at the top of the script.
 
 ## Machine-local escape hatches
 

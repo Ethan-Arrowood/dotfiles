@@ -1,0 +1,102 @@
+#!/bin/zsh
+# Restore the desk's two-monitor layout (Corsair TBT100 dock, clamshell mode).
+#
+# Usage: restore-displays [attempts] [delay-seconds]
+#   Defaults: 1 attempt (manual use). The mac-desk LaunchAgents pass more:
+#   12 x 10 s at login, 6 x 5 s on wake.
+#
+# Monitors are matched by displayplacer's serial screen id, which comes from
+# the EDID. A monitor whose EDID read failed shows up without its serial or
+# without its native 4K mode. Software can't fix that, so the script asks
+# for a power-cycle.
+#
+# To change the layout, arrange the displays in System Settings, run
+# `displayplacer list`, and copy each monitor's settings into `layout`.
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+attempts=${1:-1}
+delay=${2:-10}
+log=~/Library/Logs/restore-displays.log
+
+# serial id -> displayplacer config (everything after "id:<serial> ")
+typeset -A layout=(
+  s1617 "res:3008x1692 hz:60 color_depth:8 enabled:true scaling:on origin:(0,0) degree:0"
+  s1583 "res:1692x3008 hz:60 color_depth:8 enabled:true scaling:on origin:(3008,-567) degree:270"
+)
+# serial id -> native mode, listed only when the EDID was read
+typeset -A native=(
+  s1617 "res:3840x2160"
+  s1583 "res:2160x3840"
+)
+
+say() { print -r -- "$(date '+%F %T') $*" | tee -a "$log"; }
+
+alert() {
+  say "ALERT: $1"
+  [[ -t 1 ]] && return  # manual run: the terminal message is enough
+  osascript -e "display alert \"Display layout\" message \"$1\" giving up after 600" >/dev/null 2>&1 &
+}
+
+# Print the displayplacer list block for one serial id (empty if absent).
+block() { displayplacer list | awk -v id="Serial screen id: $1" 'BEGIN{RS=""} index($0, id)'; }
+
+# Check one monitor. Prints a problem description, or nothing if it is fine.
+problem() {
+  local serial=$1 b cfg res deg origin
+  b=$(block $serial)
+  [[ -z $b ]] && { print "$serial not detected"; return; }
+  print -r -- "$b" | grep -q "${native[$serial]} " || { print "$serial has no native mode (EDID read failed)"; return; }
+  cfg=${layout[$serial]}
+  res=${${cfg#res:}%% *}
+  deg=${cfg##*degree:}
+  origin=${${cfg#*origin:}%% *}
+  print -r -- "$b" | grep -qx "Resolution: $res" || { print "$serial resolution is not $res"; return; }
+  print -r -- "$b" | grep -qx "Rotation: $deg" || { print "$serial rotation is not $deg"; return; }
+  print -r -- "$b" | grep -q "^Origin: $origin" || { print "$serial origin is not $origin"; return; }
+}
+
+problems() { local s; for s in ${(k)layout}; do problem $s; done; }
+
+# At the desk: one of its monitors is detected, or two external screens are
+# (both EDID reads failed). Elsewhere, such as a single hotel monitor or no
+# monitor at all, there is nothing to fix and no reason to alert.
+at_desk() {
+  local list s
+  list=$(displayplacer list)
+  for s in ${(k)layout}; do
+    print -r -- "$list" | grep -qx "Serial screen id: $s" && return 0
+  done
+  (( $(print -r -- "$list" | grep -c '^Type: .*external screen') >= 2 ))
+}
+
+seen=0
+for (( i = 1; i <= attempts; i++ )); do
+  at_desk && seen=1
+  # Wait for both monitors to be detected with good EDIDs before applying.
+  issues=$(problems | grep -E 'not detected|EDID')
+  if [[ -z $issues ]]; then
+    args=()
+    for s in ${(k)layout}; do args+=("id:$s ${layout[$s]}"); done
+    displayplacer "${args[@]}" >>$log 2>&1
+    sleep 2
+    issues=$(problems)
+    if [[ -z $issues ]]; then
+      say "layout OK (attempt $i)"
+      exit 0
+    fi
+  fi
+  say "attempt $i/$attempts: ${issues//$'\n'/; }"
+  (( i < attempts )) && sleep $delay
+done
+
+if (( ! seen )); then
+  say "desk monitors not connected; nothing to restore"
+  exit 0
+fi
+if print -r -- "$issues" | grep -qE 'not detected|EDID'; then
+  alert "A monitor's EDID read failed ($issues). Power-cycle that monitor or replug the dock, then run restore-displays."
+else
+  alert "Could not apply the display layout ($issues). Run restore-displays to retry."
+fi
+exit 1
