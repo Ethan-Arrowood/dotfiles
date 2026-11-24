@@ -56,6 +56,7 @@ Links through [`link::link_file`](src/link.rs):
 | Skill directories | `~/.claude/skills/` | [`skills.rs`](src/skills.rs) |
 | Ghostty config, VS Code CLI | `~/.config/ghostty/config`, `~/.local/bin/code` | [`mac_apps.rs`](src/layers/mac_apps.rs) |
 | dispatch client | `~/.local/bin/dispatch` | [`work_harper.rs`](src/layers/work_harper.rs) |
+| restore-displays | `~/.local/bin/restore-displays` | [`mac_desk.rs`](src/layers/mac_desk.rs) |
 
 Generated state lives in `~/.config/dotfiles/`, regardless of `XDG_CONFIG_HOME`. Git includes use literal paths and cannot expand that variable. The paths in [`.gitconfig`](layers/core/home/.gitconfig) are relative, so git resolves them against the symlink's directory (`~`). A process with another `HOME` that includes `~/.gitconfig` by absolute path, such as a dispatch run, still finds them.
 
@@ -81,6 +82,7 @@ Other changes:
 - SSH keys: [`core.rs`](src/layers/core.rs) invokes `ssh-keygen` for `$DOTFILES_SSH_KEY` (default `~/.ssh/id_ed25519`) and its `.pub` file. It skips generation in containers or without a terminal for the passphrase. [`signing.rs`](src/signing.rs) reads only the public half.
 - Hooks: [`hooks.rs`](src/hooks.rs) runs SessionStart scripts once per install or relink. It creates their destination directories and sets the agent config variable and `AGENTIC_DEV_DIR`. agentic manages `~/.codex/AGENTS.md`, `~/.agents/skills/` and its Claude rule and skill links. See [agentic](https://github.com/Ethan-Arrowood/agentic) for script behavior.
 - External installers: [`mac_langs.rs`](src/layers/mac_langs.rs) runs fnm, rustup, uv, and `npm install --global` for Npmfile packages into `~/.npm-global`; [`mac_apps.rs`](src/layers/mac_apps.rs) runs the Claude installer; [`work_harper.rs`](src/layers/work_harper.rs) registers the dispatch marketplace and plugin. These tools manage their own files.
+- LaunchAgents: [`mac_desk.rs`](src/layers/mac_desk.rs) writes `com.ethanarrowood.restore-displays.plist` and `com.ethanarrowood.restore-displays-wake.plist` to `~/Library/LaunchAgents/` through `link::write_file`, then loads each into the GUI session with `launchctl bootstrap`. A changed plist is booted out and reloaded. Loading the login agent runs it once. Sessions without a GUI skip loading; the agents load at next login.
 - Default browser: [`mac_apps.rs`](src/layers/mac_apps.rs) reads the `http` and `https` handlers from `~/Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist` with `plutil`. When either is not Chrome, it runs `defaultbrowser chrome` and macOS asks to confirm. Dry runs only report it. Sessions without a GUI skip it: `launchctl managername` is not `Aqua`, or `SSH_CONNECTION` is set. An unreadable plist warns and changes nothing.
 - Shell startup creates zsh [history](layers/core/zsh/00-options.zsh) and [completion caches](layers/core/zsh/10-completion.zsh) under the configured XDG directories.
 - Bootstrap: [`install.sh`](install.sh) clones or updates `$DOTFILES_ROOT` (default `$DOTFILES_SRC_DIR/<owner>/<repo>` from `$DOTFILES_REPO`, so `~/dev/ethan-arrowood/dotfiles`) and writes the binary to `$DOTFILES_BIN_DIR` (default `~/.local/bin`).
@@ -102,7 +104,7 @@ Relative backup paths prevent same-basename collisions such as `~/.ssh/config` a
 
 1. Packages and external installers: [`brew.rs`](src/brew.rs), [`mac_langs.rs`](src/layers/mac_langs.rs), [`mac_apps.rs`](src/layers/mac_apps.rs), and `sys_install`. The latter guards internally because it can escalate to root.
 2. macOS state: defaults, shortcuts, computer names and Xcode CLT installation in [`mac_base.rs`](src/layers/mac_base.rs), the [Dock](src/dock.rs), and [Chrome policies and the default browser](src/layers/mac_apps.rs).
-3. Account and agent state: `chsh` and `ssh-add --apple-use-keychain` in [`core.rs`](src/layers/core.rs), [GitHub uploads](src/github.rs), and the [dispatch plugin](src/layers/work_harper.rs). `ssh-add` can write the real login Keychain.
+3. Account and agent state: `chsh` and `ssh-add --apple-use-keychain` in [`core.rs`](src/layers/core.rs), [GitHub uploads](src/github.rs), the [dispatch plugin](src/layers/work_harper.rs), and the [restore-displays LaunchAgents](src/layers/mac_desk.rs). `ssh-add` can write the real login Keychain.
 
 The guard compares canonical `$HOME` and account-home paths from `getent` or `dscl`. A mismatch or failed lookup blocks global changes. Only `DOTFILES_ALLOW_SANDBOXED_HOME=1` overrides it. CI checks that it fires.
 
@@ -153,6 +155,7 @@ When org links exist, the tool sets `pluginConfigs."cc-plugin-agents-md@builtin"
 | [`ncu.rs`](src/ncu.rs) | missing config detected where ncu reads it (not `~/.ncurc`), only key names read, URL encoding |
 | [`mac_base.rs`](src/layers/mac_base.rs) | Shipped Defaultsfile and Shortcuts.json, comments, malformed lines, typed plist values |
 | [`mac_apps.rs`](src/layers/mac_apps.rs) | Chrome is the default only when it handles both `http` and `https`, bundle ids compare without case, a missing plist means Safari, unreadable handlers are errors |
+| [`mac_desk.rs`](src/layers/mac_desk.rs) | LaunchAgent arguments and retries, shell and XML quoting of the wake command, `plutil -lint` passes, the script is executable |
 | [`dock.rs`](src/dock.rs) | Paths with spaces, flags, relative paths reported with file and line, plist paths, stray percent signs |
 | [`signing.rs`](src/signing.rs) | `.pub` appended, Git config quoting |
 | [`main.rs`](src/main.rs) | Recorded layers become `--with`/`--without`, re-run command flags, closing hint picks Ghostty or a login shell |

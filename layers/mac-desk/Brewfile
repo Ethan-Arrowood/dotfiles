@@ -1,0 +1,5 @@
+# restore-displays applies the layout with displayplacer.
+# sleepwatcher reruns it on wake.
+
+formula displayplacer
+formula sleepwatcher
